@@ -1,100 +1,51 @@
 # Memory Manage Skill - 记忆管理技能
 
-## 私有 Skill Hub
+## 两种安装方式
 
-**地址：** https://github.com/luoyueliang/openclaw/tree/main/skills/
-
-## 安装
-
-### 1. 安装位置
-
-| 模式 | 安装路径 |
-|------|---------|
-| 单 Agent | `/root/.openclaw/workspace/skills/memory_manage/` |
-| 多 Agent | `/root/.openclaw/agents/main/workspace/skills/memory_manage/` |
-
-### 2. 安装步骤
+### 方式 1：官方 clawhub（推荐）
 
 ```bash
-# 创建目录
-mkdir -p /root/.openclaw/workspace/skills/memory_manage
+# 安装（需要先发布到 clawhub）
+npx clawhub install memory_manage
 
-# 克隆或复制 scripts
-# 从 GitHub: https://github.com/luoyueliang/openclaw/tree/main/skills/memory_manage
-
-# 创建配置文件
-cp config/sync.yaml.example config/sync.yaml
-
-# 编辑配置（填入你的信息）
-vim config/sync.yaml
-
-# 运行初始化检查
-./scripts/init-check.sh
-
-# 测试同步
-./scripts/sync.sh
+# 或者指定版本
+npx clawhub install memory_manage --version 1.0.0
 ```
 
-### 3. 初始化检查
+### 方式 2：手动安装
 
-运行 `init-check.sh` 检查：
-- OpenClaw 目录是否存在
-- workspace 是否存在
-- 配置文件是否有效
-- GitHub Token 是否有效
+```bash
+# 克隆仓库
+git clone https://github.com/luoyueliang/openclaw.git /tmp/openclaw-skills
+
+# 复制 Skill
+cp -r /tmp/openclaw-skills/skills/memory_manage /root/.openclaw/workspace/skills/
+
+# 交互式配置
+/root/.openclaw/workspace/skills/memory_manage/scripts/install.sh
+```
+
+## 交互式配置
+
+运行安装脚本时会交互式询问：
+
+```
+实例名 [openclaw-home]: 
+Agent 名 [main]: 
+记忆备份仓库地址 [https://github.com/luoyueliang/ai_openclaw_memory]: 
+GitHub Token: ********
+```
+
+填写后会：
+1. 自动创建配置文件
+2. 运行初始化检查
+3. 测试同步
 
 ## 功能
 
-### 1. 记忆同步
-- 自动备份 MEMORY.md、AGENTS.md、SOUL.md 等核心文件
-- 备份 memory/ 目录下的日常记忆
-- 推送到私有 GitHub 仓库
-
-### 2. 关键词触发
-当检测到以下关键词时，自动更新记忆：
-
-| 关键词类型 | 关键词 |
-|----------|--------|
-| 记住类 | 帮我记住、记住、记录、存一下 |
-| 原则类 | 原则、守则、规则 |
-| 禁止类 | 禁止、严禁、不许、不能做 |
-| 偏好类 | 我喜欢、我讨厌、我想要、我偏好 |
-| 重要类 | 重要、别忘了、提醒我 |
-
-### 3. 多 Agent 管理
-
-只有 **main** Agent 能管理其他 Agent 的记忆。
-
-| Agent | 能管理的范围 |
-|-------|------------|
-| main | 所有 Agent |
-| 其他 | 只能管自己 |
-
-## 目录结构
-
-```
-memory_manage/
-├── SKILL.md                    # 本文档
-├── config/
-│   ├── sync.yaml.example       # 配置示例
-│   └── sync.yaml               # 实际配置（不推送到公开仓库）
-└── scripts/
-    ├── init-check.sh           # 初始化检查
-    └── sync.sh                 # 同步脚本
-```
-
-## 配置说明
-
-详见 `config/sync.yaml.example`
-
-## 自动同步
-
-通过 OpenClaw cron 设置每小时自动同步：
-
-```bash
-# 设置定时任务
-openclaw cron add --schedule "every 1h" --message "运行记忆同步脚本"
-```
+- 自动备份记忆到私有 GitHub 仓库
+- 支持多实例多 Agent
+- 关键词触发记忆更新
 
 ---
 

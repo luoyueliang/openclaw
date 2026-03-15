@@ -1,6 +1,6 @@
 #!/bin/bash
 # Memory Manage Skill 一键安装脚本
-# 使用官方 openclaw agents list 获取 agent 列表
+# 从 openclaw.json 读取 agent 和 workspace 配置
 
 echo ""
 echo "============================================"
@@ -8,24 +8,18 @@ echo "      Memory Manage Skill 一键安装"
 echo "============================================"
 echo ""
 
-# ========== 1. 检测操作系统 ==========
+# ========== 1. 找 OpenClaw ==========
 OS=$(uname -s)
 echo "检测操作系统: $OS"
 
 if [ "$OS" = "Darwin" ]; then
-    OPENCLAW_PATHS=("$HOME/.openclaw" "$HOME/Library/Application Support/openclaw")
-elif [ "$OS" = "Linux" ]; then
-    OPENCLAW_PATHS=("$HOME/.openclaw" "/root/.openclaw")
+    paths=("$HOME/.openclaw" "$HOME/Library/Application Support/openclaw")
 else
-    echo "不支持: $OS"
-    exit 1
+    paths=("$HOME/.openclaw" "/root/.openclaw")
 fi
 
-# ========== 2. 查找 OpenClaw 目录 ==========
-echo ""
-echo "检测 OpenClaw..."
 OPENCLAW_ROOT=""
-for path in "${OPENCLAW_PATHS[@]}"; do
+for path in "${paths[@]}"; do
     if [ -d "$path" ]; then
         OPENCLAW_ROOT="$path"
         echo "✓ 找到: $path"
@@ -33,65 +27,62 @@ for path in "${OPENCLAW_PATHS[@]}"; do
     fi
 done
 
-if [ -z "$OPENCLAW_ROOT" ]; then
-    echo "✗ 未找到"
-    read -p "手动输入路径: " OPENCLAW_ROOT
-fi
+[ -z "$OPENCLAW_ROOT" ] && echo "✗ 未找到" && exit 1
 
-[ ! -d "$OPENCLAW_ROOT" ] && echo "✗ 目录不存在" && exit 1
+CONFIG_FILE="$OPENCLAW_ROOT/openclaw.json"
 
-# ========== 3. 获取 Agent 列表（使用官方命令）==========
+[ ! -f "$CONFIG_FILE" ] && echo "✗ 配置文件不存在: $CONFIG_FILE" && exit 1
+
+# ========== 2. 解析 agents.list ==========
 echo ""
-echo "获取 Agent 列表..."
+echo "解析 Agent 配置..."
 
-# 尝试用 openclaw agents list 获取
-AGENT_LIST=$(cd "$OPENCLAW_ROOT" && openclaw agents list 2>/dev/null || echo "")
+# 用 grep + awk 简单解析（不用 jq）
+DEFAULT_WORKSPACE=$(grep -o '"workspace": *"[^"]*"' "$CONFIG_FILE" | head -1 | sed 's/.*: *"\([^"]*\)"/\1/')
 
-if [ -n "$AGENT_LIST" ]; then
-    echo "官方 Agent 列表:"
-    echo "$AGENT_LIST"
-    echo ""
-    
-    # 提取 agent 名称
-    AVAILABLE_AGENTS=()
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^-\ (.*)\ \( ]]; then
-            agent_name="${BASH_REMATCH[1]}"
-            AVAILABLE_AGENTS+=("$agent_name")
-            echo "  - $agent_name"
-        fi
-    done <<< "$AGENT_LIST"
-    
-    if [ ${#AVAILABLE_AGENTS[@]} -gt 0 ]; then
-        echo ""
-        echo "选择 Agent (输入编号或名称):"
-        select AGENT_NAME in "${AVAILABLE_AGENTS[@]}"; do
-            if [ -n "$AGENT_NAME" ]; then
-                break
-            fi
-        done
+echo "默认 Workspace: $DEFAULT_WORKSPACE"
+
+# 提取所有 agent
+echo ""
+echo "可用的 Agent:"
+AGENT_COUNT=0
+AGENT_NAMES=()
+AGENT_WORKSPACES=()
+
+# 解析 agents.list
+while IFS= read -r line; do
+    if [[ "$line" =~ \"id\":\ *\"([^\"]+)\" ]]; then
+        AGENT_NAMES+=("${BASH_REMATCH[1]}")
     fi
-fi
+    if [[ "$line" =~ \"workspace\":\ *\"([^\"]+)\" ]]; then
+        AGENT_WORKSPACES+=("${BASH_REMATCH[1]}")
+    fi
+done < <(grep -o '{[^}]*}' "$CONFIG_FILE" | grep '"id":' || true)
 
-# 如果没获取到，让用户输入
-if [ -z "$AGENT_NAME" ]; then
-    echo "未能获取列表，请手动输入 Agent 名称"
-    read -p "Agent 名称: " AGENT_NAME
-fi
+# 显示
+i=1
+for agent in "${AGENT_NAMES[@]}"; do
+    ws="${AGENT_WORKSPACES[$((i-1))]:-$DEFAULT_WORKSPACE}"
+    echo "  $i. $agent → $ws"
+    ((i++))
+done
 
-AGENT_NAME=${AGENT_NAME:-main}
-
-# 获取该 agent 的 workspace
-WORKSPACE_DIR=""
-if [ -d "$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace" ]; then
-    WORKSPACE_DIR="$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace"
-elif [ -d "$OPENCLAW_ROOT/workspace" ]; then
-    WORKSPACE_DIR="$OPENCLAW_ROOT/workspace"
-fi
-
+# ========== 3. 选择 Agent ==========
 echo ""
-echo "Agent: $AGENT_NAME"
-echo "Workspace: $WORKSPACE_DIR"
+echo "选择 Agent (输入编号):"
+read -p "> " choice
+
+if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#AGENT_NAMES[@]} ]; then
+    idx=$((choice-1))
+    AGENT_NAME="${AGENT_NAMES[$idx]}"
+    WORKSPACE="${AGENT_WORKSPACES[$idx]:-$DEFAULT_WORKSPACE}"
+else
+    AGENT_NAME="main"
+    WORKSPACE="$DEFAULT_WORKSPACE"
+fi
+
+echo "选择: $AGENT_NAME"
+echo "Workspace: $WORKSPACE"
 
 # ========== 4. 实例名 ==========
 echo ""
@@ -99,7 +90,6 @@ echo "============================================"
 echo "实例名称 (GitHub 备份区分)"
 echo "============================================"
 echo "格式: openclaw-<后缀>"
-echo "示例: openclaw-home, openclaw-mac, openclaw-pro"
 echo ""
 
 read -p "输入后缀 (4-12字符) [mac]: " INSTANCE_SUFFIX
@@ -112,24 +102,25 @@ INSTANCE_NAME="openclaw-$INSTANCE_SUFFIX"
 # ========== 5. 确认 ==========
 echo ""
 echo "============================================"
-echo "确认信息"
+echo "确认"
 echo "============================================"
 echo ""
 echo "  OpenClaw: $OPENCLAW_ROOT"
 echo "  Agent:    $AGENT_NAME"
 echo "  实例:     $INSTANCE_NAME"
 echo ""
-read -p "确认安装? (y/n): " confirm
-[ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && echo "已取消" && exit 0
+read -p "确认? (y/n): " confirm
+[ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && exit 0
 
-# ========== 6. 安装目录 ==========
-SKILLS_DIR="$OPENCLAW_ROOT/workspace/skills"
+# ========== 6. 安装 ==========
+SKILLS_DIR="$WORKSPACE/skills"
 mkdir -p "$SKILLS_DIR/memory_manage/config"
 mkdir -p "$SKILLS_DIR/memory_manage/scripts"
-echo ""
-echo "安装目录: $SKILLS_DIR/memory_manage"
 
-# ========== 7. 下载 ==========
+echo ""
+echo "安装到: $SKILLS_DIR/memory_manage"
+
+# 下载
 echo ""
 echo "下载 Skill..."
 GITHUB_RAW="https://raw.githubusercontent.com/luoyueliang/openclaw/main/skills/memory_manage"
@@ -146,7 +137,7 @@ download "$GITHUB_RAW/config/sync.yaml.example" "$SKILLS_DIR/memory_manage/confi
 
 chmod +x "$SKILLS_DIR/memory_manage/scripts/"*.sh
 
-# ========== 8. GitHub ==========
+# ========== 7. GitHub ==========
 echo ""
 echo "============================================"
 echo "GitHub 配置"
@@ -172,14 +163,13 @@ github:
   token: $GH_TOKEN
 EOF
 
-# ========== 9. 完成 ==========
+# ========== 8. 完成 ==========
 echo ""
 echo "============================================"
 echo "✓ 安装完成"
 echo "============================================"
 echo ""
-echo "  实例:   $INSTANCE_NAME"
+echo "  实例: $INSTANCE_NAME"
 echo "  Agent: $AGENT_NAME"
-echo "  仓库:   $GH_USER/$GH_REPO"
-echo "  Token: ${GH_TOKEN:0:4}...${GH_TOKEN: -4}"
+echo "  仓库: $GH_USER/$GH_REPO"
 echo ""

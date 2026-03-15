@@ -119,8 +119,8 @@ sync_agent() {
     local target_dir="$TARGET_BASE_DIR/$INSTANCE_NAME/$agent/core"
     mkdir -p "$target_dir"
     
-    # 核心文件
-    local core_files=("MEMORY.md" "AGENTS.md" "SOUL.md" "USER.md" "TOOLS.md" "HEARTBEAT.md")
+    # 核心文件（全平台通用）
+    local core_files=("MEMORY.md" "AGENTS.md" "SOUL.md" "USER.md" "TOOLS.md" "HEARTBEAT.md" "IDENTITY.md" "BOOTSTRAP.md")
     for file in "${core_files[@]}"; do
         if [ -f "$source_dir/$file" ]; then
             cp "$source_dir/$file" "$target_dir/"

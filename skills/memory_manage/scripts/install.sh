@@ -11,14 +11,13 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo_err() { echo -e "${RED}✗${NC} $1"; }
-echo_ok() { echo -e "${GREEN}✓${NC} $1"; }
-echo_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
-echo_info() { echo -e "${BLUE}ℹ${NC} $1"; }
+echo_err() { echo -e "${RED}✗${NC} $1" || true; }
+echo_ok() { echo -e "${GREEN}✓${NC} $1" || true; }
+echo_warn() { echo -e "${YELLOW}⚠${NC} $1" || true; }
+echo_info() { echo -e "${BLUE}ℹ${NC} $1" || true; }
 
 # 配置
-HUB_REPO="https://github.com/luoyueliang/openclaw"
-SKILL_NAME="memory_manage"
+GITHUB_RAW="https://raw.githubusercontent.com/luoyueliang/openclaw/main/skills/memory_manage"
 
 echo ""
 echo_info "========== Memory Manage 一键安装 =========="
@@ -30,7 +29,6 @@ echo_info "检测 Agent 模式..."
 OPENCLAW_ROOT="/root/.openclaw"
 AGENTS_DIR="$OPENCLAW_ROOT/agents"
 
-# 检测有多少个 Agent 有 workspace
 agent_count=0
 has_main=false
 
@@ -46,7 +44,6 @@ if [ -d "$AGENTS_DIR" ]; then
     done
 fi
 
-# 判断安装模式
 if [ $agent_count -gt 1 ]; then
     MODE="multi"
     echo_warn "检测到多 Agent 模式: $agent_count 个 Agent"
@@ -63,34 +60,30 @@ echo_info "安装模式: $MODE"
 echo_info "安装路径: $INSTALL_BASE"
 echo ""
 
-# ========== 下载 Skill ==========
+# ========== 下载 Skill（使用 curl）==========
 echo_info "下载 Skill..."
 
-temp_dir=$(mktemp -d)
-cd "$temp_dir"
+SKILL_DIR="$INSTALL_BASE/memory_manage"
+mkdir -p "$SKILL_DIR"
+mkdir -p "$SKILL_DIR/config"
+mkdir -p "$SKILL_DIR/scripts"
 
-git init -q
-git remote add origin "$HUB_REPO.git"
-echo "$SKILL_NAME/" > .git/info/sparse-checkout
-git config core.sparseCheckout true
-git fetch --depth 1 origin main -q
-git checkout -q main 2>/dev/null || git checkout -q master -q
+# 下载文件
+download_file() {
+    local url=$1
+    local path=$2
+    curl -sL "$url" -o "$path" 2>/dev/null && echo_ok "下载: $(basename $path)" || echo_err "失败: $(basename $path)"
+}
 
-if [ ! -d "$SKILL_NAME" ]; then
-    echo_err "下载失败，请检查网络或仓库地址"
-    rm -rf "$temp_dir"
-    exit 1
-fi
+download_file "$GITHUB_RAW/SKILL.md" "$SKILL_DIR/SKILL.md"
+download_file "$GITHUB_RAW/scripts/sync.sh" "$SKILL_DIR/scripts/sync.sh"
+download_file "$GITHUB_RAW/scripts/init-check.sh" "$SKILL_DIR/scripts/init-check.sh"
+download_file "$GITHUB_RAW/scripts/keywords-check.sh" "$SKILL_DIR/scripts/keywords-check.sh"
+download_file "$GITHUB_RAW/config/sync.yaml.example" "$SKILL_DIR/config/sync.yaml.example"
 
-echo_ok "Skill 下载完成"
+chmod +x "$SKILL_DIR/scripts/"*.sh 2>/dev/null
 
-# ========== 安装 ==========
-mkdir -p "$INSTALL_BASE"
-cp -r "$SKILL_NAME" "$INSTALL_BASE/"
-SKILL_DIR="$INSTALL_BASE/$SKILL_NAME"
-echo_ok "已安装到: $SKILL_DIR"
-
-rm -rf "$temp_dir"
+echo_ok "Skill 安装完成: $SKILL_DIR"
 
 # ========== 交互式配置 ==========
 echo ""
@@ -103,8 +96,8 @@ INSTANCE_NAME=${INSTANCE_NAME:-openclaw-home}
 read -p "Agent 名 [main]: " AGENT_NAME
 AGENT_NAME=${AGENT_NAME:-main}
 
-read -p "记忆备份仓库地址 [https://github.com/luoyueliang/ai_openclaw_memory]: " GITHUB_REPO
-GITHUB_REPO=${GITHUB_REPO:-https://github.com/luoyueliang/ai_openclaw_memory}
+read -p "记忆备份仓库地址 [https://github.com/luoyueliang/ai_openclaw_memory]: " BACKUP_REPO
+BACKUP_REPO=${BACKUP_REPO:-https://github.com/luoyueliang/ai_openclaw_memory}
 
 echo ""
 echo_warn "Token 仅用于推送到你的私有备份仓库，不会外泄"
@@ -112,7 +105,6 @@ read -s -p "GitHub Token: " GITHUB_TOKEN
 echo ""
 
 # 创建配置
-mkdir -p "$SKILL_DIR/config"
 cat > "$SKILL_DIR/config/sync.yaml" << EOF
 instance:
   name: $INSTANCE_NAME
@@ -121,25 +113,21 @@ agent:
   name: $AGENT_NAME
 
 github:
-  repo: $GITHUB_REPO
+  repo: $BACKUP_REPO
   token: $GITHUB_TOKEN
 EOF
 
-echo_ok "配置文件已创建"
-
-# 设置权限
-chmod +x "$SKILL_DIR/scripts/"*.sh 2>/dev/null
+echo_ok "配置文件已创建: $SKILL_DIR/config/sync.yaml"
 
 # ========== 初始化检查 ==========
 echo ""
 echo_info "========== 初始化检查 =========="
-"$SKILL_DIR/scripts/init-check.sh"
+"$SKILL_DIR/scripts/init-check.sh" 2>/dev/null || true
 
 echo ""
 echo_ok "========== 安装完成 =========="
 echo ""
-echo "Skill: $SKILL_NAME"
+echo "Skill: memory_manage"
 echo "模式: $MODE"
 echo "位置: $SKILL_DIR"
-echo "配置: $SKILL_DIR/config/sync.yaml"
 echo ""

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 记忆同步脚本 v5.1
+# 记忆同步脚本 v5.2
 # 支持多实例多 Agent 的记忆管理（跨平台：macOS / Linux）
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -62,9 +62,8 @@ discover_agents() {
     local result=""
     
     if [ ! -d "$agents_dir" ]; then
-        log "Agent 目录不存在"
-        result="main"
-        echo "$result"
+        log "Agent 目录不存在，使用单 Agent 模式" >&2
+        echo "main"
         return
     fi
     
@@ -80,11 +79,11 @@ discover_agents() {
     
     if [ $count -eq 0 ]; then
         # 单 Agent 模式，使用根目录 workspace
-        log "未发现多 Agent，使用根目录 workspace"
+        log "未发现多 Agent workspace，使用单 Agent 模式" >&2
         echo "main"
     else
         # 多 Agent 模式
-        log "发现 $count 个 Agent:$result"
+        log "发现 $count 个 Agent:$result" >&2
         echo "$result" | sed 's/^ //'
     fi
 }

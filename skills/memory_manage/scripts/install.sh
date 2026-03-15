@@ -1,7 +1,8 @@
 #!/bin/bash
 # Memory Manage Skill 一键安装脚本
-# 自动下载 Skill 并交互式配置
+# 自动下载 Skill + 交互式配置 + 判断单/多 Agent
 
+# 颜色
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -11,43 +12,87 @@ echo_ok() { echo -e "${GREEN}✓${NC} $1"; }
 echo_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 echo_info() { echo -e "${BLUE}ℹ${NC} $1"; }
 
-HUB_REPO="https://github.com/luoyueliang/openclaw"
-SKILLS_BASE="/root/.openclaw/workspace/skills"
+# 配置
+HUB_REPO="https://github.com/luoyueliang/openclaw.git"
 SKILL_NAME="memory_manage"
 
 echo ""
-echo_info "========== 一键安装 Memory Manage =========="
+echo_info "========== Memory Manage 一键安装 =========="
 echo ""
 
-# 1. 下载 Skill（只下载单个目录）
+# ========== 判断单/多 Agent ==========
+echo_info "检测 Agent 模式..."
+
+OPENCLAW_ROOT="/root/.openclaw"
+AGENTS_DIR="$OPENCLAW_ROOT/agents"
+
+# 检测有多少个 Agent 有 workspace
+agent_count=0
+has_main=false
+
+if [ -d "$AGENTS_DIR" ]; then
+    for dir in "$AGENTS_DIR"/*/; do
+        if [ -d "$dir/workspace" ]; then
+            agent_count=$((agent_count + 1))
+            agent_name=$(basename "$dir")
+            if [ "$agent_name" = "main" ]; then
+                has_main=true
+            fi
+        fi
+    done
+fi
+
+# 判断安装模式
+if [ $agent_count -gt 1 ]; then
+    # 多 Agent 模式
+    MODE="multi"
+    echo_warn "检测到多 Agent 模式: $agent_count 个 Agent"
+    INSTALL_BASE="$AGENTS_DIR/main/workspace/skills"
+elif [ "$has_main" = true ]; then
+    # 单 Agent 模式，main 存在
+    MODE="single-main"
+    INSTALL_BASE="$OPENCLAW_ROOT/workspace/skills"
+else
+    # 单 Agent 模式，使用根目录
+    MODE="single"
+    INSTALL_BASE="$OPENCLAW_ROOT/workspace/skills"
+fi
+
+echo_info "安装模式: $MODE"
+echo_info "安装路径: $INSTALL_BASE"
+echo ""
+
+# ========== 下载 Skill ==========
 echo_info "下载 Skill..."
 
-temp_dir="/tmp/skill-install-$$"
+temp_dir="/tmp/skill-$$"
 mkdir -p "$temp_dir"
-
-# 使用 git init + fetch 方式下载单个目录
 cd "$temp_dir"
+
 git init -q
 git remote add origin "$HUB_REPO.git"
-git config core.sparseCheckout true
 echo "$SKILL_NAME/" > .git/info/sparse-checkout
-git fetch --depth 1 origin main
+git config core.sparseCheckout true
+git fetch --depth 1 origin main -q
 git checkout -q main
 
 if [ ! -d "$SKILL_NAME" ]; then
-    echo_warn "下载失败，请检查网络"
+    echo_err "下载失败，请检查网络"
     rm -rf "$temp_dir"
     exit 1
 fi
 
-# 2. 复制到目标目录
-mkdir -p "$SKILLS_BASE"
-cp -r "$SKILL_NAME" "$SKILLS_BASE/"
-echo_ok "已安装: $SKILLS_BASE/$SKILL_NAME"
+echo_ok "Skill 下载完成"
+
+# ========== 安装 ==========
+mkdir -p "$INSTALL_BASE"
+cp -r "$SKILL_NAME" "$INSTALL_BASE/"
+SKILL_DIR="$INSTALL_BASE/$SKILL_NAME"
+echo_ok "已安装到: $SKILL_DIR"
 
 rm -rf "$temp_dir"
 
-# 3. 交互式配置
+# ========== 交互式配置 ==========
 echo ""
 echo_info "========== 配置 =========="
 echo ""
@@ -67,8 +112,8 @@ read -s -p "GitHub Token: " GITHUB_TOKEN
 echo ""
 
 # 创建配置
-mkdir -p "$SKILLS_BASE/$SKILL_NAME/config"
-cat > "$SKILLS_BASE/$SKILL_NAME/config/sync.yaml" << EOF
+mkdir -p "$SKILL_DIR/config"
+cat > "$SKILL_DIR/config/sync.yaml" << EOF
 instance:
   name: $INSTANCE_NAME
 
@@ -83,16 +128,18 @@ EOF
 echo_ok "配置文件已创建"
 
 # 设置权限
-chmod +x "$SKILLS_BASE/$SKILL_NAME/scripts/"*.sh 2>/dev/null
+chmod +x "$SKILL_DIR/scripts/"*.sh 2>/dev/null
 
-# 运行初始化检查
+# ========== 初始化检查 ==========
 echo ""
 echo_info "========== 初始化检查 =========="
-"$SKILLS_BASE/$SKILL_NAME/scripts/init-check.sh"
+"$SKILL_DIR/scripts/init-check.sh"
 
 echo ""
 echo_ok "========== 安装完成 =========="
 echo ""
 echo "Skill: $SKILL_NAME"
-echo "位置: $SKILLS_BASE/$SKILL_NAME"
+echo "模式: $MODE"
+echo "位置: $SKILL_DIR"
+echo "配置: $SKILL_DIR/config/sync.yaml"
 echo ""

@@ -2,18 +2,22 @@
 # Memory Manage Skill 一键安装脚本
 # 自动下载 Skill + 交互式配置 + 判断单/多 Agent
 
+set -e
+
 # 颜色
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+RED='\033[0;31m'
 NC='\033[0m'
 
+echo_err() { echo -e "${RED}✗${NC} $1"; }
 echo_ok() { echo -e "${GREEN}✓${NC} $1"; }
 echo_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 echo_info() { echo -e "${BLUE}ℹ${NC} $1"; }
 
 # 配置
-HUB_REPO="https://github.com/luoyueliang/openclaw.git"
+HUB_REPO="https://github.com/luoyueliang/openclaw"
 SKILL_NAME="memory_manage"
 
 echo ""
@@ -44,16 +48,13 @@ fi
 
 # 判断安装模式
 if [ $agent_count -gt 1 ]; then
-    # 多 Agent 模式
     MODE="multi"
     echo_warn "检测到多 Agent 模式: $agent_count 个 Agent"
     INSTALL_BASE="$AGENTS_DIR/main/workspace/skills"
 elif [ "$has_main" = true ]; then
-    # 单 Agent 模式，main 存在
     MODE="single-main"
     INSTALL_BASE="$OPENCLAW_ROOT/workspace/skills"
 else
-    # 单 Agent 模式，使用根目录
     MODE="single"
     INSTALL_BASE="$OPENCLAW_ROOT/workspace/skills"
 fi
@@ -65,8 +66,7 @@ echo ""
 # ========== 下载 Skill ==========
 echo_info "下载 Skill..."
 
-temp_dir="/tmp/skill-$$"
-mkdir -p "$temp_dir"
+temp_dir=$(mktemp -d)
 cd "$temp_dir"
 
 git init -q
@@ -74,10 +74,10 @@ git remote add origin "$HUB_REPO.git"
 echo "$SKILL_NAME/" > .git/info/sparse-checkout
 git config core.sparseCheckout true
 git fetch --depth 1 origin main -q
-git checkout -q main
+git checkout -q main 2>/dev/null || git checkout -q master -q
 
 if [ ! -d "$SKILL_NAME" ]; then
-    echo_err "下载失败，请检查网络"
+    echo_err "下载失败，请检查网络或仓库地址"
     rm -rf "$temp_dir"
     exit 1
 fi

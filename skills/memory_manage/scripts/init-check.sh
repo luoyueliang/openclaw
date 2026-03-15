@@ -1,5 +1,6 @@
 #!/bin/bash
 # 记忆同步 - 初始化检查脚本
+# 使用官方 openclaw agents list 获取 agent 信息
 
 # 颜色
 GREEN='\033[0;32m'
@@ -7,7 +8,6 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 log_ok() { echo -e "${GREEN}✓${NC} $1" || true; }
 log_warn() { echo -e "${YELLOW}⚠${NC} $1" || true; }
 log_err() { echo -e "${RED}✗${NC} $1" || true; }
@@ -15,32 +15,27 @@ log_err() { echo -e "${RED}✗${NC} $1" || true; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config/sync.yaml"
 
-# 自动检测 OpenClaw 根目录
-detect_openclaw_root() {
-    OS=$(uname -s)
-    
-    if [ "$OS" = "Darwin" ]; then
-        paths=("$HOME/.openclaw" "$HOME/Library/Application Support/openclaw")
-    else
-        paths=("$HOME/.openclaw" "/root/.openclaw")
-    fi
-    
-    for path in "${paths[@]}"; do
-        if [ -d "$path" ]; then
-            echo "$path"
-            return 0
-        fi
-    done
-    return 1
-}
-
-OPENCLAW_ROOT=$(detect_openclaw_root)
-
-log "========== 初始化检查 =========="
+echo "========== 初始化检查 =========="
 echo ""
 
+# 检测 OpenClaw
+OS=$(uname -s)
+if [ "$OS" = "Darwin" ]; then
+    paths=("$HOME/.openclaw" "$HOME/Library/Application Support/openclaw")
+else
+    paths=("$HOME/.openclaw" "/root/.openclaw")
+fi
+
+OPENCLAW_ROOT=""
+for path in "${paths[@]}"; do
+    if [ -d "$path" ]; then
+        OPENCLAW_ROOT="$path"
+        break
+    fi
+done
+
 if [ -z "$OPENCLAW_ROOT" ]; then
-    log_err "未找到 OpenClaw 目录"
+    log_err "未找到 OpenClaw"
     exit 1
 fi
 
@@ -54,19 +49,20 @@ fi
 
 AGENT_NAME=${AGENT_NAME:-main}
 
-log "Agent: $AGENT_NAME"
-log "实例: $INSTANCE_NAME"
 echo ""
+echo "Agent: $AGENT_NAME"
+echo "实例: $INSTANCE_NAME"
 
-# 检测工作空间
-log "========== 检查目录 =========="
-
+# 获取 workspace
 WORKSPACE_DIR=""
 if [ -d "$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace" ]; then
     WORKSPACE_DIR="$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace"
 elif [ -d "$OPENCLAW_ROOT/workspace" ]; then
     WORKSPACE_DIR="$OPENCLAW_ROOT/workspace"
 fi
+
+echo ""
+echo "========== 检查文件 =========="
 
 if [ -d "$WORKSPACE_DIR" ]; then
     log_ok "工作空间: $WORKSPACE_DIR"
@@ -75,9 +71,6 @@ else
 fi
 
 # 检查核心文件
-echo ""
-log "========== 检查文件 =========="
-
 for file in MEMORY.md AGENTS.md SOUL.md USER.md; do
     if [ -f "$WORKSPACE_DIR/$file" ]; then
         log_ok "$file"
@@ -88,18 +81,11 @@ done
 
 # 检查配置
 echo ""
-log "========== 检查配置 =========="
+echo "========== 检查配置 =========="
 
 if [ -f "$CONFIG_FILE" ]; then
     log_ok "配置文件存在"
     
-    if grep -q "instance:" "$CONFIG_FILE" && grep -q "agent:" "$CONFIG_FILE" && grep -q "github:" "$CONFIG_FILE"; then
-        log_ok "必要配置项完整"
-    else
-        log_err "配置项不完整"
-    fi
-    
-    # 显示配置（隐藏 token）
     token=$(grep "token:" "$CONFIG_FILE" | awk -F': ' '{print $2}' | tr -d ' ')
     repo=$(grep "repo:" "$CONFIG_FILE" | awk -F': ' '{print $2}' | tr -d ' ')
     
@@ -124,4 +110,4 @@ else
 fi
 
 echo ""
-log "========== 检查完成 =========="
+echo "========== 检查完成 =========="

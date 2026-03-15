@@ -1,5 +1,6 @@
 #!/bin/bash
 # Memory Manage Skill 一键安装脚本
+# 使用官方 openclaw agents list 获取 agent 列表
 
 echo ""
 echo "============================================"
@@ -39,41 +40,58 @@ fi
 
 [ ! -d "$OPENCLAW_ROOT" ] && echo "✗ 目录不存在" && exit 1
 
-# ========== 3. 检测所有 Agent（不管有没有 workspace）==========
+# ========== 3. 获取 Agent 列表（使用官方命令）==========
 echo ""
-echo "检测 Agent..."
+echo "获取 Agent 列表..."
 
-AGENTS_DIR="$OPENCLAW_ROOT/agents"
-AVAILABLE_AGENTS=()
+# 尝试用 openclaw agents list 获取
+AGENT_LIST=$(cd "$OPENCLAW_ROOT" && openclaw agents list 2>/dev/null || echo "")
 
-if [ -d "$AGENTS_DIR" ]; then
-    for dir in "$AGENTS_DIR"/*/; do
-        if [ -d "$dir" ]; then
-            agent=$(basename "$dir")
-            AVAILABLE_AGENTS+=("$agent")
+if [ -n "$AGENT_LIST" ]; then
+    echo "官方 Agent 列表:"
+    echo "$AGENT_LIST"
+    echo ""
+    
+    # 提取 agent 名称
+    AVAILABLE_AGENTS=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^-\ (.*)\ \( ]]; then
+            agent_name="${BASH_REMATCH[1]}"
+            AVAILABLE_AGENTS+=("$agent_name")
+            echo "  - $agent_name"
         fi
-    done
+    done <<< "$AGENT_LIST"
+    
+    if [ ${#AVAILABLE_AGENTS[@]} -gt 0 ]; then
+        echo ""
+        echo "选择 Agent (输入编号或名称):"
+        select AGENT_NAME in "${AVAILABLE_AGENTS[@]}"; do
+            if [ -n "$AGENT_NAME" ]; then
+                break
+            fi
+        done
+    fi
 fi
 
-if [ ${#AVAILABLE_AGENTS[@]} -gt 0 ]; then
-    echo "可用的 Agent:"
-    for i in "${!AVAILABLE_AGENTS[@]}"; do
-        echo "  $((i+1)). ${AVAILABLE_AGENTS[$i]}"
-    done
-    
-    echo ""
-    echo "选择 Agent (输入编号或名称):"
-    select AGENT_NAME in "${AVAILABLE_AGENTS[@]}"; do
-        if [ -n "$AGENT_NAME" ]; then
-            break
-        fi
-    done
-else
-    echo "未找到 Agent"
-    read -p "输入 Agent 名称: " AGENT_NAME
+# 如果没获取到，让用户输入
+if [ -z "$AGENT_NAME" ]; then
+    echo "未能获取列表，请手动输入 Agent 名称"
+    read -p "Agent 名称: " AGENT_NAME
 fi
 
 AGENT_NAME=${AGENT_NAME:-main}
+
+# 获取该 agent 的 workspace
+WORKSPACE_DIR=""
+if [ -d "$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace" ]; then
+    WORKSPACE_DIR="$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace"
+elif [ -d "$OPENCLAW_ROOT/workspace" ]; then
+    WORKSPACE_DIR="$OPENCLAW_ROOT/workspace"
+fi
+
+echo ""
+echo "Agent: $AGENT_NAME"
+echo "Workspace: $WORKSPACE_DIR"
 
 # ========== 4. 实例名 ==========
 echo ""

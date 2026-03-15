@@ -1,0 +1,76 @@
+# 配置示例
+
+## 单 Agent 模式
+
+```yaml
+# 实例名（每台机器不同）
+instance:
+  name: openclaw-home
+
+# Agent 名（默认 main）
+agent:
+  name: main
+
+# GitHub 配置（用于备份记忆）
+github:
+  repo: https://github.com/你的用户名/ai_openclaw_memory
+  token: ghp_你的GitHubPAT
+
+# 过滤规则
+exclude:
+  dirs:
+    - docs
+    - skills
+    - archive
+```
+
+## 多 Agent 模式
+
+```yaml
+# 实例名
+instance:
+  name: openclaw-home
+
+# Agent 名
+# ★ 重要：只有 main Agent 能管理其他 Agent 的记忆
+agent:
+  name: main
+
+# GitHub 配置
+github:
+  repo: https://github.com/你的用户名/ai_openclaw_memory
+  token: ghp_你的GitHubPAT
+
+# 其他 Agent 配置（可选）
+# 指定要同步哪些 Agent 的记忆
+other_agents:
+  - name: coder
+    enabled: true
+  - name: researcher
+    enabled: true
+  - name: assistant
+    enabled: false  # 禁用
+
+# 过滤规则
+exclude:
+  dirs:
+    - docs
+    - skills
+    - archive
+```
+
+## 配置说明
+
+| 配置项 | 说明 | 必填 |
+|--------|------|------|
+| instance.name | 实例名，每台机器唯一 | ✓ |
+| agent.name | 当前 Agent 名，只有 main 能管理其他 | ✓ |
+| github.repo | 记忆备份仓库 | ✓ |
+| github.token | GitHub PAT | ✓ |
+| other_agents | 其他要管理的 Agent 列表 | - |
+
+## 注意事项
+
+1. **只有 main Agent 能管理其他 Agent**
+2. 如果是单 Agent，直接用根目录 workspace
+3. GitHub Token 需要 repo 权限

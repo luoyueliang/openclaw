@@ -113,19 +113,24 @@ fi
 # 显示
 echo ""
 echo "可用的 Agent:"
+DEFAULT_IDX=1
 i=0
 while [ $i -lt ${#AGENT_LIST[@]} ]; do
     entry="${AGENT_LIST[$i]}"
     agent="${entry%%|*}"
     ws="${entry##*|}"
     echo "  $((i+1)). $agent → $ws"
+    # 找 main 作为默认
+    if [ "$agent" = "main" ]; then
+        DEFAULT_IDX=$((i+1))
+    fi
     i=$((i + 1))
 done
 
 # ========== 4. 选择 ==========
 echo ""
-read -p "选择 Agent (输入编号) [1]: " choice
-choice=${choice:-1}
+read -p "选择 Agent (输入编号) [$DEFAULT_IDX]: " choice
+choice=${choice:-$DEFAULT_IDX}
 
 if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#AGENT_LIST[@]} ]; then
     idx=$((choice - 1))

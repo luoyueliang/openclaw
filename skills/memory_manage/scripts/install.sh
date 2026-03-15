@@ -1,6 +1,6 @@
 #!/bin/bash
 # Memory Manage Skill 一键安装脚本
-# 从 openclaw.json 读取 agent 和 workspace 配置
+# 使用 openclaw agents list 获取准确的 agent 和 workspace 信息
 
 echo ""
 echo "============================================"
@@ -27,64 +27,91 @@ for path in "${paths[@]}"; do
     fi
 done
 
-[ -z "$OPENCLAW_ROOT" ] && echo "✗ 未找到" && exit 1
+if [ -z "$OPENCLAW_ROOT" ]; then
+    echo "✗ 未找到 OpenClaw"
+    exit 1
+fi
 
-CONFIG_FILE="$OPENCLAW_ROOT/openclaw.json"
+cd "$OPENCLAW_ROOT"
 
-[ ! -f "$CONFIG_FILE" ] && echo "✗ 配置文件不存在: $CONFIG_FILE" && exit 1
-
-# ========== 2. 解析 agents.list ==========
+# ========== 2. 使用 openclaw agents list 获取信息 ==========
 echo ""
-echo "解析 Agent 配置..."
+echo "获取 Agent 列表..."
 
-# 用 grep + awk 简单解析（不用 jq）
-DEFAULT_WORKSPACE=$(grep -o '"workspace": *"[^"]*"' "$CONFIG_FILE" | head -1 | sed 's/.*: *"\([^"]*\)"/\1/')
+AGENT_OUTPUT=$(openclaw agents list 2>/dev/null)
 
-echo "默认 Workspace: $DEFAULT_WORKSPACE"
+if [ -z "$AGENT_OUTPUT" ]; then
+    echo "✗ 无法获取 agent 列表，请确保 openclaw 已安装"
+    exit 1
+fi
 
-# 提取所有 agent
+echo "官方 Agent 列表:"
+echo "$AGENT_OUTPUT"
+
+# ========== 3. 解析 ==========
 echo ""
-echo "可用的 Agent:"
-AGENT_COUNT=0
-AGENT_NAMES=()
-AGENT_WORKSPACES=()
+echo "解析 Workspace..."
 
-# 解析 agents.list
-while IFS= read -r line; do
-    if [[ "$line" =~ \"id\":\ *\"([^\"]+)\" ]]; then
-        AGENT_NAMES+=("${BASH_REMATCH[1]}")
+# 提取 agent 和 workspace
+declare -A AGENT_WORKSPACES
+CURRENT_AGENT=""
+
+echo "$AGENT_OUTPUT" | while IFS= read -r line; do
+    # Agent 行: - name (default)
+    if [[ "$line" =~ ^-\ (.+)\ \(default\) ]]; then
+        CURRENT_AGENT="${BASH_REMATCH[1]}"
+    # Agent 行: - name
+    elif [[ "$line" =~ ^-\ (.+)$ ]]; then
+        CURRENT_AGENT="${BASH_REMATCH[1]}"
+    # Workspace 行
+    elif [[ "$line" =~ Workspace:\ (.+) ]]; then
+        ws="${BASH_REMATCH[1]}"
+        # 展开 ~
+        ws=$(eval echo "$ws")
+        if [ -n "$CURRENT_AGENT" ]; then
+            echo "$CURRENT_AGENT|$ws"
+        fi
     fi
-    if [[ "$line" =~ \"workspace\":\ *\"([^\"]+)\" ]]; then
-        AGENT_WORKSPACES+=("${BASH_REMATCH[1]}")
-    fi
-done < <(grep -o '{[^}]*}' "$CONFIG_FILE" | grep '"id":' || true)
+done > /tmp/openclaw_agents.txt
+
+# 读取结果
+mapfile -t AGENT_LIST < /tmp/openclaw_agents.txt
+
+if [ ${#AGENT_LIST[@]} -eq 0 ]; then
+    echo "✗ 未找到 agent"
+    exit 1
+fi
 
 # 显示
+echo ""
+echo "可用的 Agent:"
 i=1
-for agent in "${AGENT_NAMES[@]}"; do
-    ws="${AGENT_WORKSPACES[$((i-1))]:-$DEFAULT_WORKSPACE}"
+for entry in "${AGENT_LIST[@]}"; do
+    agent="${entry%%|*}"
+    ws="${entry##*|}"
     echo "  $i. $agent → $ws"
     ((i++))
 done
 
-# ========== 3. 选择 Agent ==========
+# ========== 4. 选择 ==========
 echo ""
 echo "选择 Agent (输入编号):"
 read -p "> " choice
 
-if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#AGENT_NAMES[@]} ]; then
+if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#AGENT_LIST[@]} ]; then
     idx=$((choice-1))
-    AGENT_NAME="${AGENT_NAMES[$idx]}"
-    WORKSPACE="${AGENT_WORKSPACES[$idx]:-$DEFAULT_WORKSPACE}"
+    entry="${AGENT_LIST[$idx]}"
+    AGENT_NAME="${entry%%|*}"
+    WORKSPACE="${entry##*|}"
 else
     AGENT_NAME="main"
-    WORKSPACE="$DEFAULT_WORKSPACE"
+    WORKSPACE="$OPENCLAW_ROOT/workspace"
 fi
 
 echo "选择: $AGENT_NAME"
 echo "Workspace: $WORKSPACE"
 
-# ========== 4. 实例名 ==========
+# ========== 5. 实例名 ==========
 echo ""
 echo "============================================"
 echo "实例名称 (GitHub 备份区分)"
@@ -99,7 +126,7 @@ INSTANCE_SUFFIX=${INSTANCE_SUFFIX:-mac}
 
 INSTANCE_NAME="openclaw-$INSTANCE_SUFFIX"
 
-# ========== 5. 确认 ==========
+# ========== 6. 确认 ==========
 echo ""
 echo "============================================"
 echo "确认"
@@ -107,12 +134,13 @@ echo "============================================"
 echo ""
 echo "  OpenClaw: $OPENCLAW_ROOT"
 echo "  Agent:    $AGENT_NAME"
+echo "  Workspace: $WORKSPACE"
 echo "  实例:     $INSTANCE_NAME"
 echo ""
 read -p "确认? (y/n): " confirm
 [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && exit 0
 
-# ========== 6. 安装 ==========
+# ========== 7. 安装 ==========
 SKILLS_DIR="$WORKSPACE/skills"
 mkdir -p "$SKILLS_DIR/memory_manage/config"
 mkdir -p "$SKILLS_DIR/memory_manage/scripts"
@@ -137,7 +165,7 @@ download "$GITHUB_RAW/config/sync.yaml.example" "$SKILLS_DIR/memory_manage/confi
 
 chmod +x "$SKILLS_DIR/memory_manage/scripts/"*.sh
 
-# ========== 7. GitHub ==========
+# ========== 8. GitHub ==========
 echo ""
 echo "============================================"
 echo "GitHub 配置"
@@ -163,7 +191,7 @@ github:
   token: $GH_TOKEN
 EOF
 
-# ========== 8. 完成 ==========
+# ========== 9. 完成 ==========
 echo ""
 echo "============================================"
 echo "✓ 安装完成"

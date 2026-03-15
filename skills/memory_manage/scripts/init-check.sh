@@ -1,6 +1,5 @@
 #!/bin/bash
 # 记忆同步 - 初始化检查脚本
-# 自动检测正确的 OpenClaw 路径
 
 # 颜色
 GREEN='\033[0;32m'
@@ -18,33 +17,34 @@ CONFIG_FILE="$SCRIPT_DIR/../config/sync.yaml"
 
 # 自动检测 OpenClaw 根目录
 detect_openclaw_root() {
-    local user=$(whoami)
-    local home=$(eval echo ~$user)
+    OS=$(uname -s)
     
-    local possible_paths=(
-        "$home/.openclaw"
-        "$home/Library/Application Support/openclaw"
-        "/root/.openclaw"
-    )
+    if [ "$OS" = "Darwin" ]; then
+        paths=("$HOME/.openclaw" "$HOME/Library/Application Support/openclaw")
+    else
+        paths=("$HOME/.openclaw" "/root/.openclaw")
+    fi
     
-    for path in "${possible_paths[@]}"; do
+    for path in "${paths[@]}"; do
         if [ -d "$path" ]; then
             echo "$path"
             return 0
         fi
     done
-    
     return 1
 }
 
 OPENCLAW_ROOT=$(detect_openclaw_root)
+
+log "========== 初始化检查 =========="
+echo ""
 
 if [ -z "$OPENCLAW_ROOT" ]; then
     log_err "未找到 OpenClaw 目录"
     exit 1
 fi
 
-log_ok "OpenClaw 目录: $OPENCLAW_ROOT"
+log_ok "OpenClaw: $OPENCLAW_ROOT"
 
 # 读取配置
 if [ -f "$CONFIG_FILE" ]; then
@@ -53,88 +53,75 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 AGENT_NAME=${AGENT_NAME:-main}
-log "Agent: $AGENT_NAME, 实例: $INSTANCE_NAME"
 
-# 检测工作空间路径
+log "Agent: $AGENT_NAME"
+log "实例: $INSTANCE_NAME"
+echo ""
+
+# 检测工作空间
+log "========== 检查目录 =========="
+
+WORKSPACE_DIR=""
 if [ -d "$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace" ]; then
     WORKSPACE_DIR="$OPENCLAW_ROOT/agents/$AGENT_NAME/workspace"
 elif [ -d "$OPENCLAW_ROOT/workspace" ]; then
     WORKSPACE_DIR="$OPENCLAW_ROOT/workspace"
-else
-    WORKSPACE_DIR=""
-fi
-
-log ""
-log "========== 检查目录结构 =========="
-
-if [ -d "$OPENCLAW_ROOT" ]; then
-    log_ok "OpenClaw 根目录存在: $OPENCLAW_ROOT"
-else
-    log_err "OpenClaw 根目录不存在: $OPENCLAW_ROOT"
 fi
 
 if [ -d "$WORKSPACE_DIR" ]; then
-    log_ok "工作空间存在: $WORKSPACE_DIR"
+    log_ok "工作空间: $WORKSPACE_DIR"
 else
     log_err "工作空间不存在"
 fi
 
 # 检查核心文件
-log ""
-log "========== 检查核心文件 =========="
+echo ""
+log "========== 检查文件 =========="
 
-core_files=(
-    "MEMORY.md:核心记忆"
-    "AGENTS.md:Agent定义"
-)
-
-for item in "${core_files[@]}"; do
-    file="${item%%:*}"
-    desc="${item##*:}"
-    
+for file in MEMORY.md AGENTS.md SOUL.md USER.md; do
     if [ -f "$WORKSPACE_DIR/$file" ]; then
-        log_ok "$desc 存在"
+        log_ok "$file"
     else
-        log_warn "$desc 不存在: $WORKSPACE_DIR/$file"
+        log_warn "$file (不存在)"
     fi
 done
 
-# 检查配置文件
-log ""
-log "========== 检查配置文件 =========="
+# 检查配置
+echo ""
+log "========== 检查配置 =========="
 
 if [ -f "$CONFIG_FILE" ]; then
-    log_ok "配置文件存在: $CONFIG_FILE"
+    log_ok "配置文件存在"
     
     if grep -q "instance:" "$CONFIG_FILE" && grep -q "agent:" "$CONFIG_FILE" && grep -q "github:" "$CONFIG_FILE"; then
         log_ok "必要配置项完整"
     else
-        log_err "配置文件缺少必要项"
+        log_err "配置项不完整"
     fi
-else
-    log_err "配置文件不存在: $CONFIG_FILE"
-fi
-
-# 检查 GitHub
-log ""
-log "========== 检查 GitHub =========="
-
-if [ -f "$CONFIG_FILE" ]; then
-    token=$(grep "token:" "$CONFIG_FILE" | awk -F': ' '{print $2}' | tr -d ' ')
     
+    # 显示配置（隐藏 token）
+    token=$(grep "token:" "$CONFIG_FILE" | awk -F': ' '{print $2}' | tr -d ' ')
+    repo=$(grep "repo:" "$CONFIG_FILE" | awk -F': ' '{print $2}' | tr -d ' ')
+    
+    echo ""
+    echo "配置信息:"
+    echo "  - 实例: $INSTANCE_NAME"
+    echo "  - Agent: $AGENT_NAME"
+    echo "  - 仓库: $repo"
+    echo "  - Token: ${token:0:4}...${token: -4}"
+    
+    # 验证 GitHub
     if [ -n "$token" ] && [ "$token" != "ghp_xxx" ]; then
-        log_ok "GitHub Token 已配置"
-        
         response=$(curl -s -o /dev/null -w "%{http_code}" "https://api.github.com/user" -H "Authorization: token $token" 2>/dev/null)
         if [ "$response" = "200" ]; then
             log_ok "GitHub Token 有效"
         else
             log_warn "GitHub Token 无效 (HTTP $response)"
         fi
-    else
-        log_err "GitHub Token 未配置"
     fi
+else
+    log_err "配置文件不存在"
 fi
 
-log ""
+echo ""
 log "========== 检查完成 =========="

@@ -1,73 +1,97 @@
 # Memory Manage Skill - 记忆管理技能
 
-## 一键安装
+## 功能概述
 
-复制以下命令直接在服务器运行：
-
-```bash
-curl -sL https://raw.githubusercontent.com/luoyueliang/openclaw/main/skills/memory_manage/scripts/install.sh | bash
-```
-
-或者先下载再运行：
-
-```bash
-wget -O install.sh https://raw.githubusercontent.com/luoyueliang/openclaw/main/skills/memory_manage/scripts/install.sh
-bash install.sh
-```
-
-## 安装过程
-
-运行后会：
-1. **自动检测**单 Agent / 多 Agent 模式
-2. **自动选择**安装目录
-3. **自动下载** Skill
-4. **交互式配置**
-
-## 交互式配置
-
-```
-实例名 [openclaw-home]: 
-Agent 名 [main]: 
-记忆备份仓库地址 [https://github.com/你的用户名/ai_openclaw_memory]: 
-GitHub Token: ********
-```
-
-## 如何获取 GitHub Token
-
-### 步骤 1：创建 Personal Access Token (PAT)
-
-1. 登录 GitHub：https://github.com
-2. 点击右上角头像 → **Settings**
-3. 左侧菜单找到 **Developer settings**
-4. 点击 **Personal access tokens** → **Tokens (classic)**
-5. 点击 **Generate new token (classic)**
-
-### 步骤 2：配置 Token
-
-- **Note**：填写一个备注名，如 `OpenClaw Memory Backup`
-- **Expiration**：建议选择 **No expiration**（永不过期）或 90 天
-- **Select scopes**：勾选 `repo`（完整仓库权限）
-
-### 步骤 3：复制 Token
-
-生成后**立即复制保存**，只显示一次！
-
-```
-ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### 注意事项
-
-- Token 只用于推送到**你自己的私有备份仓库**
-- **不要**把 Token 推送到公开的 Skill Hub
-- 安装脚本会在本地生成配置文件，不会推送到公开仓库
-
-## 功能
-
-- 自动备份 MEMORY.md、AGENTS.md 等核心文件
+### 1. 记忆同步
+- 自动备份 MEMORY.md、AGENTS.md 等核心文件到私有 GitHub 仓库
 - 支持多实例多 Agent
-- 关键词触发记忆更新
+
+### 2. Agent 监控
+- 检测 agent 变更（新增/删除/修改）
+- 检查每个 agent 的 memory 配置
+- 问题实时通知（飞书 + 邮件）
 
 ---
 
-*🤖 记忆管理技能 - 自动备份到 GitHub*
+## 脚本说明
+
+### install.sh
+一键安装脚本，自动检测 OpenClaw 安装路径和 agent 列表
+
+### init-check.sh  
+初始化检查脚本，检查配置和文件
+
+### sync.sh
+同步脚本，执行记忆备份
+
+### monitor-agents.sh
+**Agent 监控脚本**
+- 每小时运行一次
+- 检测 agent 变更
+- 检查 memory 文件配置
+- 异常情况通知
+
+---
+
+## 监控逻辑
+
+### 检测项目
+
+| 检测项 | 说明 |
+|--------|------|
+| Agent 新增 | 新增的 agent |
+| Agent 删除 | 被删除的 agent |
+| Workspace 变更 | agent 的 workspace 路径变化 |
+| Memory 文件 | MEMORY.md, AGENTS.md, SOUL.md, USER.md |
+
+### 通知策略
+
+| 情况 | 通知方式 | 严重程度 |
+|------|---------|---------|
+| 新增 agent | 飞书 + 邮件 | INFO |
+| 删除 agent | 飞书 + 邮件 | WARN |
+| Memory 文件缺失 | 飞书 + 邮件 | ERROR |
+| 同步失败 | 飞书 + 邮件 | ERROR |
+
+---
+
+## 配置
+
+### sync.yaml
+
+```yaml
+instance:
+  name: openclaw-mac
+
+agent:
+  name: main
+
+github:
+  repo: https://github.com/xxx/ai_openclaw_memory
+  token: ghp_xxx
+
+# 通知配置
+notify:
+  feishu_webhook: "https://open.feishu.cn/..."
+  email:
+    enabled: true
+    to: "user@example.com"
+```
+
+---
+
+## 自动运行
+
+通过 cron 设置每小时检查：
+
+```bash
+# 每小时运行监控
+0 * * * * /path/to/monitor-agents.sh
+
+# 每小时运行同步
+30 * * * * /path/to/sync.sh
+```
+
+---
+
+*🤖 记忆管理 + Agent 监控*

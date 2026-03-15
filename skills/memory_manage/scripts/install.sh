@@ -1,44 +1,48 @@
 #!/bin/bash
 # Memory Manage Skill 一键安装脚本
-# 自动下载 Skill + 交互式配置
 
 echo ""
 echo "========== Memory Manage 一键安装 =========="
 echo ""
 
-# 检测当前用户
+# 强制获取当前用户的真实家目录
 CURRENT_USER=$(whoami)
-CURRENT_HOME=$(echo ~)
+CURRENT_HOME=$(eval echo ~$CURRENT_USER)
+
 echo "当前用户: $CURRENT_USER"
 echo "用户目录: $CURRENT_HOME"
 echo ""
 
-# 先尝试常见路径
-OPENCLAW_ROOT=""
+# 尝试多个可能的路径
 possible_paths=(
     "$CURRENT_HOME/.openclaw"
     "$CURRENT_HOME/Library/Application Support/openclaw"
-    "$HOME/.openclaw"
-    "/root/.openclaw"
+    "/Users/$CURRENT_USER/.openclaw"
 )
 
-echo "检测 OpenClaw 路径..."
+OPENCLAW_ROOT=""
 for path in "${possible_paths[@]}"; do
     if [ -d "$path" ]; then
         OPENCLAW_ROOT="$path"
-        echo "找到: $path"
+        echo "找到 OpenClaw: $path"
         break
     fi
 done
 
-# 如果没找到，让用户输入
+# 如果没找到
 if [ -z "$OPENCLAW_ROOT" ]; then
     echo "未找到 OpenClaw，请手动输入路径"
-    echo "（Mac 常见: ~/.openclaw 或 ~/Library/Application Support/openclaw）"
+    echo "常见路径："
+    echo "  - ~/.openclaw"
+    echo "  - ~/Library/Application Support/openclaw"
+    echo ""
     read -p "OpenClaw 路径: " OPENCLAW_ROOT
 fi
 
-# 检测安装目录
+echo "使用路径: $OPENCLAW_ROOT"
+echo ""
+
+# 检测模式
 if [ -d "$OPENCLAW_ROOT/agents/main/workspace" ]; then
     MODE="multi"
     SKILLS_DIR="$OPENCLAW_ROOT/agents/main/workspace/skills"
@@ -47,34 +51,25 @@ else
     SKILLS_DIR="$OPENCLAW_ROOT/workspace/skills"
 fi
 
-echo ""
 echo "安装模式: $MODE"
-echo "安装目录: $SKILLS_DIR"
+echo "目标目录: $SKILLS_DIR"
 echo ""
 
-# 如果目录不存在，尝试创建
-if [ ! -d "$SKILLS_DIR" ]; then
-    echo "创建目录..."
-    mkdir -p "$SKILLS_DIR" 2>/dev/null || {
-        echo "错误: 无法创建目录 $SKILLS_DIR"
-        echo "请检查权限或手动创建"
-        read -p "直接回车退出，或输入新路径: " NEW_PATH
-        if [ -n "$NEW_PATH" ]; then
-            SKILLS_DIR="$NEW_PATH"
-            mkdir -p "$SKILLS_DIR"
-        else
-            exit 1
-        fi
-    }
+# 创建目录
+echo "创建目录..."
+if ! mkdir -p "$SKILLS_DIR/memory_manage" 2>/dev/null; then
+    echo "错误: 无法创建 $SKILLS_DIR"
+    echo "请手动创建目录或检查权限"
+    exit 1
 fi
+mkdir -p "$SKILLS_DIR/memory_manage/config"
+mkdir -p "$SKILLS_DIR/memory_manage/scripts"
+echo "✓ 目录创建完成"
+echo ""
 
 # 下载 Skill
 echo "========== 下载 Skill =========="
 GITHUB_RAW="https://raw.githubusercontent.com/luoyueliang/openclaw/main/skills/memory_manage"
-
-mkdir -p "$SKILLS_DIR/memory_manage"
-mkdir -p "$SKILLS_DIR/memory_manage/config"
-mkdir -p "$SKILLS_DIR/memory_manage/scripts"
 
 download() {
     local url=$1
@@ -82,7 +77,7 @@ download() {
     if curl -sL "$url" -o "$file" 2>/dev/null; then
         echo "✓ $(basename $file)"
     else
-        echo "✗ $(basename $file) 下载失败"
+        echo "✗ $(basename $file)"
     fi
 }
 
@@ -94,10 +89,7 @@ download "$GITHUB_RAW/config/sync.yaml.example" "$SKILLS_DIR/memory_manage/confi
 
 chmod +x "$SKILLS_DIR/memory_manage/scripts/"*.sh 2>/dev/null
 
-echo ""
-echo "✓ Skill 安装完成"
-
-# 交互式配置
+# 配置
 echo ""
 echo "========== 配置 =========="
 echo ""
@@ -108,15 +100,13 @@ INSTANCE_NAME=${INSTANCE_NAME:-openclaw-home}
 read -p "Agent 名 [main]: " AGENT_NAME
 AGENT_NAME=${AGENT_NAME:-main}
 
-read -p "记忆备份仓库地址 [https://github.com/luoyueliang/ai_openclaw_memory]: " BACKUP_REPO
+read -p "备份仓库地址 [https://github.com/luoyueliang/ai_openclaw_memory]: " BACKUP_REPO
 BACKUP_REPO=${BACKUP_REPO:-https://github.com/luoyueliang/ai_openclaw_memory}
 
 echo ""
-echo "Token 仅用于推送到你的私有备份仓库"
 read -s -p "GitHub Token: " GITHUB_TOKEN
 echo ""
 
-# 创建配置
 cat > "$SKILLS_DIR/memory_manage/config/sync.yaml" << EOF
 instance:
   name: $INSTANCE_NAME
@@ -130,17 +120,9 @@ github:
 EOF
 
 echo ""
-echo "✓ 配置文件已创建"
-
-# 运行初始化检查
-echo ""
-echo "========== 初始化检查 =========="
-"$SKILLS_DIR/memory_manage/scripts/init-check.sh" 2>/dev/null || true
-
+echo "✓ 配置完成"
 echo ""
 echo "========== 安装完成 =========="
-echo ""
 echo "Skill: memory_manage"
-echo "模式: $MODE"
 echo "位置: $SKILLS_DIR/memory_manage"
 echo ""

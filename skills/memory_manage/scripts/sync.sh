@@ -1,10 +1,35 @@
 #!/bin/bash
-# 记忆同步脚本 v5.0
-# 支持多实例多 Agent 的记忆管理
+# 记忆同步脚本 v5.1
+# 支持多实例多 Agent 的记忆管理（跨平台：macOS / Linux）
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config/sync.yaml"
-OPENCLAW_ROOT="/root/.openclaw"
+
+# ========== 动态检测 OpenClaw 根目录 ==========
+detect_openclaw_root() {
+    local OS
+    OS=$(uname -s)
+    local paths
+    if [ "$OS" = "Darwin" ]; then
+        paths=("$HOME/.openclaw" "$HOME/Library/Application Support/openclaw")
+    else
+        paths=("$HOME/.openclaw" "/root/.openclaw")
+    fi
+    for p in "${paths[@]}"; do
+        if [ -d "$p" ]; then
+            echo "$p"
+            return
+        fi
+    done
+    echo ""
+}
+
+OPENCLAW_ROOT=$(detect_openclaw_root)
+if [ -z "$OPENCLAW_ROOT" ]; then
+    echo "[ERROR] 未找到 OpenClaw 安装目录"
+    exit 1
+fi
+
 TARGET_BASE_DIR="$OPENCLAW_ROOT/workspace/memory-github"
 
 log() {
@@ -111,7 +136,13 @@ sync_agent() {
     if [ -d "$source_dir/memory" ]; then
         for item in "$source_dir/memory"/*; do
             if [ -f "$item" ]; then
-                local size=$(stat -c%s "$item" 2>/dev/null || echo 0)
+                # stat 跨平台：macOS 用 -f%z，Linux 用 -c%s
+                local size
+                if [ "$(uname -s)" = "Darwin" ]; then
+                    size=$(stat -f%z "$item" 2>/dev/null || echo 0)
+                else
+                    size=$(stat -c%s "$item" 2>/dev/null || echo 0)
+                fi
                 if [ "$size" -lt 1048576 ]; then
                     cp "$item" "$mem_target/"
                     log "✓ memory/$(basename $item)"
@@ -125,14 +156,23 @@ sync_agent() {
 
 # 初始化 Git 仓库
 init_repo() {
+    mkdir -p "$TARGET_BASE_DIR"
+    cd "$TARGET_BASE_DIR"
     if [ ! -d "$TARGET_BASE_DIR/.git" ]; then
-        log "初始化 GitHub 仓库..."
-        cd "$TARGET_BASE_DIR"
+        log "初始化本地 Git 仓库..."
         git init
-        git config user.name "Luo Yue Liang"
-        git config user.email "luoyueliang@github.com"
-        git remote add origin "https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO#https://}.git"
-        git branch -M master
+        git config user.name "OpenClaw Sync"
+        git config user.email "sync@openclaw.local"
+        git symbolic-ref HEAD refs/heads/master
+    fi
+    # 每次都更新 remote URL（含最新 token）
+    # 正确构造：将 https:// 替换为 https://TOKEN@
+    local REPO_AUTH_URL
+    REPO_AUTH_URL=$(echo "$GITHUB_REPO" | sed "s|https://|https://${GITHUB_TOKEN}@|")
+    if git remote get-url origin >/dev/null 2>&1; then
+        git remote set-url origin "$REPO_AUTH_URL"
+    else
+        git remote add origin "$REPO_AUTH_URL"
     fi
 }
 
@@ -149,11 +189,19 @@ commit_push() {
     COMMIT_MSG="🤖 自动同步 - $(date '+%Y-%m-%d %H:%M:%S') - $INSTANCE_NAME"
     git commit -m "$COMMIT_MSG"
     
-    if git push -u origin master 2>&1 | tee -a /tmp/sync.log; then
+    # 先 pull --rebase，让多实例同仓库不冲突（各实例写不同子目录）
+    git pull --rebase origin master >> /tmp/sync.log 2>&1 || true
+    
+    if git push -u origin master >> /tmp/sync.log 2>&1; then
         log "✓ 同步成功！"
     else
-        log "✗ 同步失败"
-        return 1
+        log "✗ 推送失败，尝试强制推送..."
+        if git push -u origin master --force >> /tmp/sync.log 2>&1; then
+            log "✓ 强制推送成功"
+        else
+            log "✗ 同步失败，查看: /tmp/sync.log"
+            return 1
+        fi
     fi
 }
 

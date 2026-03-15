@@ -34,72 +34,101 @@ fi
 
 cd "$OPENCLAW_ROOT"
 
-# ========== 2. 使用 openclaw agents list 获取信息 ==========
+# ========== 2. 获取 Agent 列表（优先 CLI，fallback 扫目录）==========
 echo ""
 echo "获取 Agent 列表..."
 
-AGENT_OUTPUT=$(openclaw agents list 2>/dev/null)
+# 尝试从多个常见路径找到 openclaw CLI
+OPENCLAW_BIN=""
+for bin in openclaw /usr/bin/openclaw /usr/local/bin/openclaw \
+           /opt/homebrew/bin/openclaw "$HOME/.local/bin/openclaw"; do
+    if command -v "$bin" >/dev/null 2>&1 || [ -x "$bin" ]; then
+        OPENCLAW_BIN="$bin"
+        break
+    fi
+done
 
-if [ -z "$AGENT_OUTPUT" ]; then
-    echo "✗ 无法获取 agent 列表，请确保 openclaw 已安装"
-    exit 1
+> /tmp/openclaw_agents_$$.txt
+
+if [ -n "$OPENCLAW_BIN" ]; then
+    AGENT_OUTPUT=$("$OPENCLAW_BIN" agents list 2>/dev/null)
 fi
 
-echo "官方 Agent 列表:"
-echo "$AGENT_OUTPUT"
+if [ -n "$AGENT_OUTPUT" ]; then
+    echo "Agent 列表 (via CLI):"
+    echo "$AGENT_OUTPUT"
+    echo ""
+    echo "解析 Workspace..."
 
-# ========== 3. 解析 ==========
-echo ""
-echo "解析 Workspace..."
-
-# 提取 agent 和 workspace
-declare -A AGENT_WORKSPACES
-CURRENT_AGENT=""
-
-echo "$AGENT_OUTPUT" | while IFS= read -r line; do
-    # Agent 行: - name (default)
-    if [[ "$line" =~ ^-\ (.+)\ \(default\) ]]; then
-        CURRENT_AGENT="${BASH_REMATCH[1]}"
-    # Agent 行: - name
-    elif [[ "$line" =~ ^-\ (.+)$ ]]; then
-        CURRENT_AGENT="${BASH_REMATCH[1]}"
-    # Workspace 行
-    elif [[ "$line" =~ Workspace:\ (.+) ]]; then
-        ws="${BASH_REMATCH[1]}"
-        # 展开 ~
-        ws=$(eval echo "$ws")
-        if [ -n "$CURRENT_AGENT" ]; then
-            echo "$CURRENT_AGENT|$ws"
+    CURRENT_AGENT=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^-\ (.+)\ \(default\) ]]; then
+            CURRENT_AGENT="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ ^-\ (.+)$ ]]; then
+            CURRENT_AGENT="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ Workspace:\ (.+) ]]; then
+            ws="${BASH_REMATCH[1]}"
+            ws=$(eval echo "$ws")
+            if [ -n "$CURRENT_AGENT" ]; then
+                echo "$CURRENT_AGENT|$ws" >> /tmp/openclaw_agents_$$.txt
+                CURRENT_AGENT=""
+            fi
         fi
-    fi
-done > /tmp/openclaw_agents.txt
+    done <<< "$AGENT_OUTPUT"
+fi
 
-# 读取结果
-mapfile -t AGENT_LIST < /tmp/openclaw_agents.txt
+# 若 CLI 解析不到结果，降级扫描 agents 目录
+if [ ! -s /tmp/openclaw_agents_$$.txt ]; then
+    echo "⚠ CLI 未返回结果，扫描 $OPENCLAW_ROOT/agents/ ..."
+    if [ -d "$OPENCLAW_ROOT/agents" ]; then
+        for agent_dir in "$OPENCLAW_ROOT/agents"/*/; do
+            [ -d "$agent_dir" ] || continue
+            agent_name=$(basename "$agent_dir")
+            ws="$OPENCLAW_ROOT/agents/$agent_name/workspace"
+            [ -d "$ws" ] || ws="$OPENCLAW_ROOT/workspace"
+            echo "$agent_name|$ws" >> /tmp/openclaw_agents_$$.txt
+        done
+    fi
+fi
+
+# 若仍为空，使用默认单 Agent 模式
+if [ ! -s /tmp/openclaw_agents_$$.txt ]; then
+    echo "main|$OPENCLAW_ROOT/workspace" > /tmp/openclaw_agents_$$.txt
+fi
+
+# ========== 3. 读取结果（bash 3.2 兼容，不用 mapfile）==========
+AGENT_LIST=()
+i=0
+while IFS= read -r line; do
+    AGENT_LIST[$i]="$line"
+    i=$((i + 1))
+done < /tmp/openclaw_agents_$$.txt
+rm -f /tmp/openclaw_agents_$$.txt
 
 if [ ${#AGENT_LIST[@]} -eq 0 ]; then
-    echo "✗ 未找到 agent"
+    echo "✗ 未找到任何 Agent"
     exit 1
 fi
 
 # 显示
 echo ""
 echo "可用的 Agent:"
-i=1
-for entry in "${AGENT_LIST[@]}"; do
+i=0
+while [ $i -lt ${#AGENT_LIST[@]} ]; do
+    entry="${AGENT_LIST[$i]}"
     agent="${entry%%|*}"
     ws="${entry##*|}"
-    echo "  $i. $agent → $ws"
-    ((i++))
+    echo "  $((i+1)). $agent → $ws"
+    i=$((i + 1))
 done
 
 # ========== 4. 选择 ==========
 echo ""
-echo "选择 Agent (输入编号):"
-read -p "> " choice
+read -p "选择 Agent (输入编号) [1]: " choice
+choice=${choice:-1}
 
 if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#AGENT_LIST[@]} ]; then
-    idx=$((choice-1))
+    idx=$((choice - 1))
     entry="${AGENT_LIST[$idx]}"
     AGENT_NAME="${entry%%|*}"
     WORKSPACE="${entry##*|}"
@@ -114,17 +143,18 @@ echo "Workspace: $WORKSPACE"
 # ========== 5. 实例名 ==========
 echo ""
 echo "============================================"
-echo "实例名称 (GitHub 备份区分)"
+echo "实例名称 (GitHub 备份区分不同机器)"
 echo "============================================"
-echo "格式: openclaw-<后缀>"
+echo "建议格式: openclaw-<机器用途>，如 openclaw-macpro / openclaw-home"
 echo ""
 
-read -p "输入后缀 (4-12字符) [mac]: " INSTANCE_SUFFIX
-INSTANCE_SUFFIX=${INSTANCE_SUFFIX:-mac}
+read -p "实例名称 [openclaw-home]: " INSTANCE_NAME
+INSTANCE_NAME=${INSTANCE_NAME:-"openclaw-home"}
 
-[ ${#INSTANCE_SUFFIX} -lt 4 ] || [ ${#INSTANCE_SUFFIX} -gt 12 ] && echo "错误: 4-12字符" && exit 1
-
-INSTANCE_NAME="openclaw-$INSTANCE_SUFFIX"
+if [[ ! "$INSTANCE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "✗ 实例名仅允许字母、数字、- 和 _"
+    exit 1
+fi
 
 # ========== 6. 确认 ==========
 echo ""

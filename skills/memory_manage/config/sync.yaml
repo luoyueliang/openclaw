@@ -1,0 +1,29 @@
+# 实例标识（每个 OpenClaw 实例应该有不同的名字）
+instance:
+  name: openclaw-home
+  
+# Agent 名（当前 Agent）
+agent:
+  name: main
+
+# GitHub 配置
+github:
+  repo: https://github.com/luoyueliang/ai_openclaw_memory
+  token: ghp_xxxx  # TODO: 替换为你的 GitHub PAT
+
+# 同步频率（毫秒）
+sync_interval: 3600000
+
+# 过滤规则（不同步的大目录）
+exclude:
+  dirs:
+    - docs
+    - sande
+    - archive
+    - skills
+
+# 核心文件（必须存在的文件，用于初始化检查）
+required:
+  files:
+    - MEMORY.md
+    - AGENTS.md

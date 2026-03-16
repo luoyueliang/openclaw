@@ -19,9 +19,14 @@
 - 检查每个 agent 的 memory 文件配置
 - 问题实时通知（飞书 + 邮件，可选）
 
-### 4. 关键词检查 (`keywords-check.sh`)
-- 检查消息中是否包含触发记忆更新的关键词
-- 可接入主流程做自动触发逻辑
+### 4. 关键词处理（AGENTS.md 原生指令）
+- Agent 通过读取 `memory/keywords.md` 自主识别关键词
+- **分类路由**：不同类型关键词写入不同目标文件
+  - 记住类 → `memory/keyword-YYYY-MM-DD.md`
+  - 原则/禁止类 → `AGENTS.md`（追加到 Red Lines 或新建章节）
+  - 偏好类 → `USER.md`（追加到偏好章节）
+  - 重要类 → `MEMORY.md`（长期记忆）
+- `keyword-history.js`：一次性历史 session 扫描，用于补录已有对话中的触发词
 
 ---
 

@@ -39,14 +39,15 @@ function runSafe(cmd, opts = {}) {
 // ─── Telegram 通知 ────────────────────────────────────────
 function readTelegramConfig(openclawRoot) {
   try {
-    const cfgPath = path.join(openclawRoot, '..', 'openclaw.json');
+    const cfgPath = path.join(openclawRoot, 'openclaw.json');
     if (!fs.existsSync(cfgPath)) return null;
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     const tg = cfg?.channels?.telegram;
     if (!tg?.enabled || !tg?.botToken) return null;
     // 找第一个纯数字的 allowFrom 作为 chat_id（私聊 user_id = chat_id）
     const chatId = (tg.allowFrom || []).find(x => /^\d+$/.test(String(x)));
-    return chatId ? { botToken: tg.botToken, chatId: String(chatId) } : null;
+    // 返回 botToken（总是）和 chatId（可能为 null，由调用方补充 manual chat_id）
+    return { botToken: tg.botToken, chatId: chatId ? String(chatId) : null };
   } catch { return null; }
 }
 
@@ -270,11 +271,12 @@ async function main() {
   log('========== 记忆同步完成 ==========');
 
   // ── Telegram 通知 ──
-  // chat_id 优先读 sync.yaml notify.telegram_chat_id，否则从 openclaw.json 自动检测
+  // chat_id 优先读 sync.yaml notify.telegram_chat_id，其次从 openclaw.json allowFrom 自动检测
+  const tgBase = readTelegramConfig(openclawRoot);
   const manualChatId = config?.notify?.telegram_chat_id;
-  const tgCfg = manualChatId
-    ? { botToken: readTelegramConfig(openclawRoot)?.botToken, chatId: String(manualChatId) }
-    : readTelegramConfig(openclawRoot);
+  const tgCfg = tgBase?.botToken
+    ? { botToken: tgBase.botToken, chatId: String(manualChatId || tgBase.chatId || '') }
+    : null;
 
   if (tgCfg?.botToken && tgCfg?.chatId) {
     const msg = buildNotifyMessage(instanceName, agents, success);

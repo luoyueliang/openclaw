@@ -212,7 +212,13 @@ function initRepo(repoDir, githubRepo, githubToken) {
 
   if (!fs.existsSync(gitDir)) {
     log('初始化本地 Git 仓库...');
-    run(`git -C "${repoDir}" init`);
+    // git 2.28+ 支持 -b 指定初始分支；旧版本用 symbolic-ref 兜底
+    try {
+      run(`git -C "${repoDir}" init -b main`);
+    } catch {
+      run(`git -C "${repoDir}" init`);
+      runSafe(`git -C "${repoDir}" symbolic-ref HEAD refs/heads/main`);
+    }
     run(`git -C "${repoDir}" config user.name "OpenClaw Sync"`);
     run(`git -C "${repoDir}" config user.email "sync@openclaw.local"`);
     run(`git -C "${repoDir}" remote add origin "${remoteUrl}"`);

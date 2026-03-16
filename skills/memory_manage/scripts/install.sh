@@ -193,17 +193,12 @@ download() {
 }
 
 download "$GITHUB_RAW/SKILL.md" "$SKILLS_DIR/memory_manage/SKILL.md"
-download "$GITHUB_RAW/scripts/sync.sh" "$SKILLS_DIR/memory_manage/scripts/sync.sh"
 download "$GITHUB_RAW/scripts/sync.js" "$SKILLS_DIR/memory_manage/scripts/sync.js"
-download "$GITHUB_RAW/scripts/init-check.sh" "$SKILLS_DIR/memory_manage/scripts/init-check.sh"
 download "$GITHUB_RAW/scripts/init-check.js" "$SKILLS_DIR/memory_manage/scripts/init-check.js"
-download "$GITHUB_RAW/scripts/keyword-monitor.sh" "$SKILLS_DIR/memory_manage/scripts/keyword-monitor.sh"
 download "$GITHUB_RAW/scripts/keyword-history.js" "$SKILLS_DIR/memory_manage/scripts/keyword-history.js"
-download "$GITHUB_RAW/scripts/keywords-check.sh" "$SKILLS_DIR/memory_manage/scripts/keywords-check.sh"
+download "$GITHUB_RAW/scripts/restore.js" "$SKILLS_DIR/memory_manage/scripts/restore.js"
 download "$GITHUB_RAW/scripts/package.json" "$SKILLS_DIR/memory_manage/scripts/package.json"
 download "$GITHUB_RAW/config/sync.yaml.example" "$SKILLS_DIR/memory_manage/config/sync.yaml.example"
-
-chmod +x "$SKILLS_DIR/memory_manage/scripts/"*.sh
 
 # 安装 Node.js 依赖
 echo ""
@@ -297,6 +292,41 @@ echo ""
 read -s -p "GitHub PAT: " GH_TOKEN
 echo ""
 
+# ========== 8b. 检查实例名称冲突 ==========
+RESTORE_AFTER_INSTALL=false
+
+echo ""
+echo "检查实例名称冲突..."
+GH_API_URL="https://api.github.com/repos/$GH_USER/$GH_REPO/contents/$INSTANCE_NAME"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: token $GH_TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    "$GH_API_URL" 2>/dev/null)
+
+if [ "$HTTP_CODE" = "200" ]; then
+    echo ""
+    echo "⚠ 警告：实例 '$INSTANCE_NAME' 已在 GitHub 备份仓库中存在！"
+    echo ""
+    echo "请选择处理方式："
+    echo "  1. 覆盖（此为新机器，将用本机数据覆盖旧备份）"
+    echo "  2. 先恢复（此为换机器/重装，安装后从 GitHub 恢复记忆到本机）"
+    echo "  3. 取消安装"
+    echo ""
+    read -p "请选择 [1/2/3]: " CONFLICT_ACTION
+    case "$CONFLICT_ACTION" in
+        1) echo "✓ 将在首次同步时覆盖远端备份" ;;
+        2) RESTORE_AFTER_INSTALL=true; echo "✓ 安装完成后将自动执行 restore" ;;
+        3) echo "已取消安装"; exit 0 ;;
+        *) echo "✗ 无效输入，已取消"; exit 1 ;;
+    esac
+elif [ "$HTTP_CODE" = "404" ]; then
+    echo "✓ 实例名称可用（远端无冲突）"
+elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+    echo "⚠ GitHub Token 权限不足或无效（HTTP $HTTP_CODE），跳过冲突检查"
+else
+    echo "⚠ 无法连接 GitHub API（HTTP $HTTP_CODE），跳过冲突检查"
+fi
+
 cat > "$SKILLS_DIR/memory_manage/config/sync.yaml" << EOF
 instance:
   name: $INSTANCE_NAME
@@ -338,3 +368,21 @@ echo "  node $SKILLS_DIR/memory_manage/scripts/init-check.js"
 echo ""
 echo "关键词配置: $WORKSPACE/memory/keywords.md"
 echo ""
+
+# ========== 10. 恢复（仅在用户选择 "先恢复" 时）==========
+if [ "$RESTORE_AFTER_INSTALL" = "true" ]; then
+    echo "============================================"
+    echo "从 GitHub 恢复记忆文件..."
+    echo "============================================"
+    echo ""
+    NODE_BIN=$(command -v node 2>/dev/null)
+    if [ -z "$NODE_BIN" ]; then
+        NODE_BIN=$(find /usr /opt/homebrew "$HOME/.nvm" -name node -type f 2>/dev/null | head -1)
+    fi
+    if [ -n "$NODE_BIN" ]; then
+        "$NODE_BIN" "$SKILLS_DIR/memory_manage/scripts/restore.js" \
+            --instance="$INSTANCE_NAME" --agent="$AGENT_NAME" --mode=both || true
+    else
+        echo "⚠ 未找到 node，请手动运行: node $SKILLS_DIR/memory_manage/scripts/restore.js"
+    fi
+fi

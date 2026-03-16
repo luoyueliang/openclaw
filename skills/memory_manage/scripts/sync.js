@@ -240,7 +240,6 @@ function commitPush(repoDir) {
 
   // pull --rebase（多实例同仓库不冲突，各写各自目录）
   runSafe(`git -C "${repoDir}" pull --rebase origin main`);
-  runSafe(`git -C "${repoDir}" pull --rebase origin master`);
 
   const pushed = runSafe(`git -C "${repoDir}" push origin HEAD:main`);
   if (pushed !== null) {

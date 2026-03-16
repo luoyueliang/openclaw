@@ -196,9 +196,59 @@ download "$GITHUB_RAW/SKILL.md" "$SKILLS_DIR/memory_manage/SKILL.md"
 download "$GITHUB_RAW/scripts/sync.sh" "$SKILLS_DIR/memory_manage/scripts/sync.sh"
 download "$GITHUB_RAW/scripts/init-check.sh" "$SKILLS_DIR/memory_manage/scripts/init-check.sh"
 download "$GITHUB_RAW/scripts/keywords-check.sh" "$SKILLS_DIR/memory_manage/scripts/keywords-check.sh"
+download "$GITHUB_RAW/scripts/keyword-monitor.sh" "$SKILLS_DIR/memory_manage/scripts/keyword-monitor.sh"
 download "$GITHUB_RAW/config/sync.yaml.example" "$SKILLS_DIR/memory_manage/config/sync.yaml.example"
 
 chmod +x "$SKILLS_DIR/memory_manage/scripts/"*.sh
+
+# 若 keywords.md 不存在，创建默认版本
+KEYWORDS_FILE="$WORKSPACE/memory/keywords.md"
+mkdir -p "$WORKSPACE/memory"
+if [ ! -f "$KEYWORDS_FILE" ]; then
+    cat > "$KEYWORDS_FILE" << 'KWEOF'
+# 记忆关键词配置
+
+## 自动触发记忆的关键词
+当用户发送的消息包含以下关键词时，自动提取并保存到 memory/ 目录：
+
+### 记住类
+- 帮我记住
+- 记住
+- 记录
+- 存一下
+
+### 原则类
+- 原则
+- 守则
+- 规则
+
+### 禁止类
+- 禁止
+- 严禁
+- 不许
+- 不能做
+
+### 偏好类
+- 我喜欢
+- 我讨厌
+- 我想要
+- 我偏好
+
+### 重要类
+- 重要
+- 别忘了
+- 提醒我
+- 标记
+
+## 保存格式
+当检测到关键词时，自动提取关键信息并保存到 memory/keyword-YYYYMMDD.md，格式：
+```
+### [时间] 关键词
+用户要求记住的内容...
+```
+KWEOF
+    echo "✓ keywords.md"
+fi
 
 # ========== 8. GitHub ==========
 echo ""
@@ -235,4 +285,16 @@ echo ""
 echo "  实例: $INSTANCE_NAME"
 echo "  Agent: $AGENT_NAME"
 echo "  仓库: $GH_USER/$GH_REPO"
+echo ""
+echo "============================================"
+echo "建议设置定时任务（可选）"
+echo "============================================"
+echo ""
+echo "每小时同步 memory → GitHub (复制运行):"
+echo "  (crontab -l 2>/dev/null; echo \"0 * * * * $SKILLS_DIR/memory_manage/scripts/sync.sh >> /tmp/openclaw-sync.log 2>&1\") | crontab -"
+echo ""
+echo "每 5 分钟监控关键词:"
+echo "  (crontab -l 2>/dev/null; echo \"*/5 * * * * $SKILLS_DIR/memory_manage/scripts/keyword-monitor.sh >> /tmp/openclaw-keyword.log 2>&1\") | crontab -"
+echo ""
+echo "查看关键词配置: $WORKSPACE/memory/keywords.md"
 echo ""

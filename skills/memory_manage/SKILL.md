@@ -35,11 +35,12 @@ memory_manage/
 │   ├── sync.yaml     # 实际配置（不提交，含真实 token）
 │   └── sync.yaml.example  # 配置模板
 └── scripts/
-    ├── install.sh         # 一键交互安装
-    ├── init-check.sh      # 初始化检查
-    ├── sync.sh            # 记忆同步（主功能）
-    ├── monitor-agents.sh  # Agent 监控
-    └── keywords-check.sh  # 关键词检查
+    ├── install.sh           # 一键交互安装
+    ├── init-check.sh        # 初始化检查
+    ├── sync.sh              # 记忆同步（主功能）
+    ├── keyword-monitor.sh   # 关键词监控 → 自动写入记忆
+    ├── monitor-agents.sh    # Agent 监控
+    └── keywords-check.sh    # 关键词检查工具
 ```
 
 ---
@@ -94,6 +95,35 @@ memory_manage/
         └── memory/     ← memory/ 子目录文件
 ```
 
+### keyword-monitor.sh
+
+**功能：** 监控 OpenClaw 会话日志，当用户消息包含 `keywords.md` 中的关键词时，自动提取内容并写入 `memory/keyword-YYYYMMDD.md`，由 `sync.sh` 在下次同步时一并推送到 GitHub。
+
+**执行逻辑：**
+1. 加载 `workspace/memory/keywords.md` 中所有 `- 关键词` 行
+2. 扫描最近 24 小时内修改过的 `sessions/*.jsonl` 文件
+3. 只读取上次运行后的新增行（状态保存在 `state/keyword-monitor-state.json`）
+4. 提取 `type=message, role=user` 的消息文本（去除 Feishu/Telegram 元数据前缀）
+5. 匹配关键词 → 写入 `memory/keyword-YYYYMMDD.md`
+
+**关键词文件格式：**
+```markdown
+### 记住类
+- 帮我记住
+- 记住
+```
+
+**输出文件格式：**
+```markdown
+### [2026-03-15 14:00:00] 触发关键词: 帮我记住
+
+每周五同步一次数据到 GitHub
+
+---
+```
+
+**依赖：** `python3`（用于解析 jsonl 和清洗消息内容）
+
 ### monitor-agents.sh
 
 检测 Agent 变更并通知。可结合 cron 每小时运行监控。
@@ -146,19 +176,22 @@ notify:
 
 ## 自动运行
 
-通过 cron 设置定时同步：
+通过一条命令添加所有 cron 任务（不覆盖已有任务）：
 
+**Linux（openclaw-home）：**
 ```bash
-# 编辑 crontab
-crontab -e
-
-# Linux（openclaw-home）
-30 * * * * /root/.openclaw/workspace/skills/memory_manage/scripts/sync.sh >> /tmp/sync.log 2>&1
-0  * * * * /root/.openclaw/workspace/skills/memory_manage/scripts/monitor-agents.sh >> /tmp/monitor.log 2>&1
-
-# macOS（openclaw-macpro，替换 yue 为实际用户名）
-30 * * * * /Users/yue/.openclaw/workspace/skills/memory_manage/scripts/sync.sh >> /tmp/sync.log 2>&1
+(crontab -l 2>/dev/null; echo "0 * * * * /root/.openclaw/workspace/skills/memory_manage/scripts/sync.sh >> /tmp/openclaw-sync.log 2>&1"; echo "*/5 * * * * /root/.openclaw/workspace/skills/memory_manage/scripts/keyword-monitor.sh >> /tmp/openclaw-keyword.log 2>&1") | crontab -
 ```
+
+**macOS（openclaw-macpro，替换 yue 为实际用户名）：**
+```bash
+(crontab -l 2>/dev/null; echo "0 * * * * /Users/yue/.openclaw/workspace/skills/memory_manage/scripts/sync.sh >> /tmp/openclaw-sync.log 2>&1"; echo "*/5 * * * * /Users/yue/.openclaw/workspace/skills/memory_manage/scripts/keyword-monitor.sh >> /tmp/openclaw-keyword.log 2>&1") | crontab -
+```
+
+| 任务 | 频率 | 说明 |
+|------|------|------|
+| `sync.sh` | 每小时 | 推送 memory → GitHub 备份 |
+| `keyword-monitor.sh` | 每 5 分钟 | 监控关键词 → 写入 memory/ |
 
 ---
 
@@ -170,7 +203,8 @@ crontab -e
 | v5.1 | 修复动态检测 `OPENCLAW_ROOT`；修复 git remote URL 双 `github.com` bug；修复 `stat -c%s` 跨平台 |
 | v5.2 | 修复 `discover_agents` log 输出污染 stdout，导致日志文本被当 agent 名解析 |
 | v5.2+ | 新增 `IDENTITY.md` / `BOOTSTRAP.md` 到同步清单；`install.sh` 默认选 main；增加 bash 3.2 兼容 |
+| v5.3 | 新增 `keyword-monitor.sh`：监控 session 关键词 → 自动写入 `memory/keyword-YYYYMMDD.md`；`install.sh` 增加 `keywords.md` 初始化和 cron 安装提示 |
 
 ---
 
-*🤖 记忆管理 + Agent 监控 - 支持 macOS (bash 3.2) / Linux*
+*🤖 记忆管理 + 关键词监控 - 支持 macOS (bash 3.2) / Linux*

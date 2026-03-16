@@ -5,7 +5,8 @@
   "scripts": {
     "sync": "node sync.js",
     "check": "node init-check.js",
-    "history": "node keyword-history.js"
+    "history": "node keyword-history.js",
+    "restore": "node restore.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

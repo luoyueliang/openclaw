@@ -110,17 +110,51 @@ function discoverAgents(openclawRoot) {
   return agents;
 }
 
-// ─── 文件复制（< 1 MB）─────────────────────────────────────
+// ─── 文件复制（< 1 MB，内容相同则跳过）───────────────────────
 function copyFile(src, dest) {
   if (!fs.existsSync(src)) return false;
   if (fs.statSync(src).size > 1048576) return false;
+  const srcBuf = fs.readFileSync(src);
+  if (fs.existsSync(dest)) {
+    const destBuf = fs.readFileSync(dest);
+    if (srcBuf.equals(destBuf)) return false; // 内容无变化，跳过
+  }
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.copyFileSync(src, dest);
+  fs.writeFileSync(dest, srcBuf);
   return true;
 }
 
+// ─── 备份 openclaw 系统配置 ───────────────────────────────
+function syncConfig(openclawRoot, repoDir, instanceName) {
+  let changed = 0;
+  const cfgDest = path.join(repoDir, instanceName, 'config');
+
+  // openclaw.json（脱敏：去掉 token/secret 字段后备份）
+  const ocJson = path.join(openclawRoot, 'openclaw.json');
+  if (fs.existsSync(ocJson)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(ocJson, 'utf8'));
+      // 保留结构，移除敏感字段
+      const sanitized = JSON.parse(JSON.stringify(raw, (k, v) => {
+        if (['token', 'botToken', 'appSecret', 'apiKey', 'secret', 'password'].includes(k)) return '***';
+        return v;
+      }));
+      const destPath = path.join(cfgDest, 'openclaw.json');
+      const newContent = Buffer.from(JSON.stringify(sanitized, null, 2));
+      const existed = fs.existsSync(destPath) && fs.readFileSync(destPath).equals(newContent);
+      if (!existed) {
+        fs.mkdirSync(cfgDest, { recursive: true });
+        fs.writeFileSync(destPath, newContent);
+        log('  ✓ config/openclaw.json');
+        changed++;
+      }
+    } catch { /* ignore */ }
+  }
+  return changed;
+}
+
 // ─── 单个 Agent 同步 ──────────────────────────────────────
-function syncAgent(agent, repoDir, instanceName) {
+function syncAgent(agent, repoDir, instanceName, openclawRoot) {
   const { name, workspace } = agent;
   log(`=== 同步 Agent: ${name} ===`);
 
@@ -152,6 +186,20 @@ function syncAgent(agent, repoDir, instanceName) {
     }
   }
 
+  // agent/ 目录配置（多 Agent 模式：~/.openclaw/agents/<name>/agent/*.json）
+  const agentCfgSrc = path.join(openclawRoot, 'agents', name, 'agent');
+  const agentCfgDest = path.join(repoDir, instanceName, name, 'agent');
+  if (fs.existsSync(agentCfgSrc)) {
+    for (const f of fs.readdirSync(agentCfgSrc)) {
+      if (!f.endsWith('.json')) continue;
+      if (copyFile(path.join(agentCfgSrc, f), path.join(agentCfgDest, f))) {
+        log(`  ✓ agent/${f}`);
+        changed++;
+        agent._syncedFiles.push(`agent/${f}`);
+      }
+    }
+  }
+
   log(`Agent ${name}: ${changed} 个文件已复制`);
 }
 
@@ -178,11 +226,12 @@ function initRepo(repoDir, githubRepo, githubToken) {
 }
 
 // ─── Commit & Push ────────────────────────────────────────
+// 返回 'pushed' | 'no-change' | 'failed'
 function commitPush(repoDir) {
   const status = runSafe(`git -C "${repoDir}" status --porcelain`);
   if (!status || !status.trim()) {
-    log('没有新变更需要提交');
-    return;
+    log('无内容变更，跳过提交与推送');
+    return 'no-change';
   }
 
   run(`git -C "${repoDir}" add -A`);
@@ -196,15 +245,15 @@ function commitPush(repoDir) {
   const pushed = runSafe(`git -C "${repoDir}" push origin HEAD:main`);
   if (pushed !== null) {
     log('✓ 同步成功！');
-  } else {
-    log('push 失败，尝试 force push...');
-    if (runSafe(`git -C "${repoDir}" push --force origin HEAD:main`) !== null) {
-      log('✓ 同步成功（force push）');
-    } else {
-      log('✗ 同步失败');
-      process.exit(1);
-    }
+    return 'pushed';
   }
+  log('push 失败，尝试 force push...');
+  if (runSafe(`git -C "${repoDir}" push --force origin HEAD:main`) !== null) {
+    log('✓ 同步成功（force push）');
+    return 'pushed';
+  }
+  log('✗ 同步失败');
+  return 'failed';
 }
 
 // ─── 构建 Telegram 通知消息 ──────────────────────────────
@@ -214,8 +263,8 @@ function buildNotifyMessage(instanceName, agents, success) {
     day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   const totalFiles = agents.reduce((n, a) => n + (a._syncedFiles?.length || 0), 0);
-  const statusIcon = success ? '✅' : '❌';
-  const statusText = success ? '同步成功' : '同步失败';
+  const statusIcon = success === 'pushed' ? '✅' : success === 'no-change' ? '🔄' : '❌';
+  const statusText = success === 'pushed' ? '已同步推送' : success === 'no-change' ? '无变更（已是最新）' : '同步失败';
 
   const fileLines = agents.flatMap(a =>
     (a._syncedFiles || []).slice(0, 5).map(f => `  · ${f}`)
@@ -262,12 +311,16 @@ async function main() {
   const repoDir = path.join(openclawRoot, 'workspace', 'memory-github');
   initRepo(repoDir, githubRepo, githubToken);
 
+  // 备份系统配置
+  const cfgChanged = syncConfig(openclawRoot, repoDir, instanceName);
+  if (cfgChanged > 0) log(`系统配置: ${cfgChanged} 个文件已复制`);
+
   for (const agent of agents) {
-    syncAgent(agent, repoDir, instanceName);
+    syncAgent(agent, repoDir, instanceName, openclawRoot);
   }
 
-  let success = true;
-  try { commitPush(repoDir); } catch { success = false; }
+  let success;
+  try { success = commitPush(repoDir); } catch { success = 'failed'; }
   log('========== 记忆同步完成 ==========');
 
   // ── Telegram 通知 ──

@@ -57,6 +57,12 @@ exclude:
     - docs
     - skills
     - archive
+
+# 通知配置（可选）
+# telegram_chat_id: 留空则自动从 openclaw.json channels.telegram.allowFrom 检测
+# 如果 allowFrom 是 ["*"]，需手动填写你的 Telegram 用户 ID
+notify:
+  telegram_chat_id: ""   # 例如: 5274666788
 ```
 
 ## 配置说明

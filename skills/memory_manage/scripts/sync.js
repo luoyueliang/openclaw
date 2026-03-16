@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const https = require('https');
 const { execSync } = require('child_process');
 const yaml = require('js-yaml');
 
@@ -33,6 +34,39 @@ function run(cmd, opts = {}) {
 
 function runSafe(cmd, opts = {}) {
   try { return run(cmd, opts); } catch { return null; }
+}
+
+// ─── Telegram 通知 ────────────────────────────────────────
+function readTelegramConfig(openclawRoot) {
+  try {
+    const cfgPath = path.join(openclawRoot, '..', 'openclaw.json');
+    if (!fs.existsSync(cfgPath)) return null;
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    const tg = cfg?.channels?.telegram;
+    if (!tg?.enabled || !tg?.botToken) return null;
+    // 找第一个纯数字的 allowFrom 作为 chat_id（私聊 user_id = chat_id）
+    const chatId = (tg.allowFrom || []).find(x => /^\d+$/.test(String(x)));
+    return chatId ? { botToken: tg.botToken, chatId: String(chatId) } : null;
+  } catch { return null; }
+}
+
+function sendTelegram(botToken, chatId, text) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' });
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${botToken}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(8000, () => { req.destroy(); resolve(false); });
+    req.write(body);
+    req.end();
+  });
 }
 
 // ─── 路径检测 ─────────────────────────────────────────────
@@ -90,6 +124,7 @@ function syncAgent(agent, repoDir, instanceName) {
   log(`=== 同步 Agent: ${name} ===`);
 
   let changed = 0;
+  agent._syncedFiles = [];
 
   // 核心文件 → <instance>/<agent>/core/
   const coreDir = path.join(repoDir, instanceName, name, 'core');
@@ -97,6 +132,7 @@ function syncAgent(agent, repoDir, instanceName) {
     if (copyFile(path.join(workspace, f), path.join(coreDir, f))) {
       log(`  ✓ ${f}`);
       changed++;
+      agent._syncedFiles.push(f);
     }
   }
 
@@ -110,6 +146,7 @@ function syncAgent(agent, repoDir, instanceName) {
       if (copyFile(path.join(srcMem, f), path.join(destMem, f))) {
         log(`  ✓ memory/${f}`);
         changed++;
+        agent._syncedFiles.push(`memory/${f}`);
       }
     }
   }
@@ -169,8 +206,36 @@ function commitPush(repoDir) {
   }
 }
 
+// ─── 构建 Telegram 通知消息 ──────────────────────────────
+function buildNotifyMessage(instanceName, agents, success) {
+  const ts = new Date().toLocaleString('zh-CN', { hour12: false,
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit',
+    day: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  const totalFiles = agents.reduce((n, a) => n + (a._syncedFiles?.length || 0), 0);
+  const statusIcon = success ? '✅' : '❌';
+  const statusText = success ? '同步成功' : '同步失败';
+
+  const fileLines = agents.flatMap(a =>
+    (a._syncedFiles || []).slice(0, 5).map(f => `  · ${f}`)
+  ).join('\n');
+  const moreTip = totalFiles > 5 ? `\n  · ... 共 ${totalFiles} 个文件` : '';
+
+  const TIP = `
+💡 <b>说这些话让我更好记住你：</b>
+• <code>帮我记住...</code> → 日记备忘
+• <code>这很重要...</code> → 长期记忆
+• <code>我喜欢 / 我偏好...</code> → 写入 USER.md
+• <code>以后禁止 / 原则是...</code> → 写入 AGENTS.md`;
+
+  return `${statusIcon} <b>[${instanceName}] 记忆${statusText}</b>\n` +
+         `🕐 ${ts}\n` +
+         (totalFiles > 0 ? `📁 已同步 ${totalFiles} 个文件\n${fileLines}${moreTip}` : `📁 无文件变更`) +
+         TIP;
+}
+
 // ─── 主流程 ───────────────────────────────────────────────
-function main() {
+async function main() {
   log('========== 记忆同步开始 ==========');
 
   const openclawRoot = detectOpenclawRoot();
@@ -200,8 +265,24 @@ function main() {
     syncAgent(agent, repoDir, instanceName);
   }
 
-  commitPush(repoDir);
+  let success = true;
+  try { commitPush(repoDir); } catch { success = false; }
   log('========== 记忆同步完成 ==========');
+
+  // ── Telegram 通知 ──
+  // chat_id 优先读 sync.yaml notify.telegram_chat_id，否则从 openclaw.json 自动检测
+  const manualChatId = config?.notify?.telegram_chat_id;
+  const tgCfg = manualChatId
+    ? { botToken: readTelegramConfig(openclawRoot)?.botToken, chatId: String(manualChatId) }
+    : readTelegramConfig(openclawRoot);
+
+  if (tgCfg?.botToken && tgCfg?.chatId) {
+    const msg = buildNotifyMessage(instanceName, agents, success);
+    const ok = await sendTelegram(tgCfg.botToken, tgCfg.chatId, msg);
+    log(ok ? '✓ Telegram 通知已发送' : '⚠ Telegram 通知发送失败');
+  } else {
+    log('— 未配置 Telegram 通知，跳过');
+  }
 }
 
 main();

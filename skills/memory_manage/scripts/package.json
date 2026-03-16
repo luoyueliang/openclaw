@@ -1,0 +1,13 @@
+{
+  "name": "openclaw-memory-manage",
+  "version": "1.0.0",
+  "description": "OpenClaw Memory Manage Skill - Node.js scripts",
+  "scripts": {
+    "sync": "node sync.js",
+    "check": "node init-check.js",
+    "history": "node keyword-history.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

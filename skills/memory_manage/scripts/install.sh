@@ -194,12 +194,26 @@ download() {
 
 download "$GITHUB_RAW/SKILL.md" "$SKILLS_DIR/memory_manage/SKILL.md"
 download "$GITHUB_RAW/scripts/sync.sh" "$SKILLS_DIR/memory_manage/scripts/sync.sh"
+download "$GITHUB_RAW/scripts/sync.js" "$SKILLS_DIR/memory_manage/scripts/sync.js"
 download "$GITHUB_RAW/scripts/init-check.sh" "$SKILLS_DIR/memory_manage/scripts/init-check.sh"
-download "$GITHUB_RAW/scripts/keywords-check.sh" "$SKILLS_DIR/memory_manage/scripts/keywords-check.sh"
+download "$GITHUB_RAW/scripts/init-check.js" "$SKILLS_DIR/memory_manage/scripts/init-check.js"
 download "$GITHUB_RAW/scripts/keyword-monitor.sh" "$SKILLS_DIR/memory_manage/scripts/keyword-monitor.sh"
+download "$GITHUB_RAW/scripts/keyword-history.js" "$SKILLS_DIR/memory_manage/scripts/keyword-history.js"
+download "$GITHUB_RAW/scripts/keywords-check.sh" "$SKILLS_DIR/memory_manage/scripts/keywords-check.sh"
+download "$GITHUB_RAW/scripts/package.json" "$SKILLS_DIR/memory_manage/scripts/package.json"
 download "$GITHUB_RAW/config/sync.yaml.example" "$SKILLS_DIR/memory_manage/config/sync.yaml.example"
 
 chmod +x "$SKILLS_DIR/memory_manage/scripts/"*.sh
+
+# 安装 Node.js 依赖
+echo ""
+echo "安装 Node.js 依赖..."
+if command -v npm >/dev/null 2>&1; then
+    cd "$SKILLS_DIR/memory_manage/scripts" && npm install --silent 2>/dev/null && echo "✓ npm install" || echo "⚠ npm install 失败，请手动运行: cd $SKILLS_DIR/memory_manage/scripts && npm install"
+    cd - >/dev/null
+else
+    echo "⚠ 未找到 npm，跳过 Node.js 依赖安装"
+fi
 
 # 若 keywords.md 不存在，创建默认版本
 KEYWORDS_FILE="$WORKSPACE/memory/keywords.md"
@@ -290,11 +304,18 @@ echo "============================================"
 echo "建议设置定时任务（可选）"
 echo "============================================"
 echo ""
-echo "每小时同步 memory → GitHub (复制运行):"
+echo "每小时同步 memory → GitHub（Node.js 版，推荐）:"
+echo "  (crontab -l 2>/dev/null; echo \"0 * * * * node $SKILLS_DIR/memory_manage/scripts/sync.js >> /tmp/openclaw-sync.log 2>&1\") | crontab -"
+echo ""
+echo "每小时同步（bash 版备选）:"
 echo "  (crontab -l 2>/dev/null; echo \"0 * * * * $SKILLS_DIR/memory_manage/scripts/sync.sh >> /tmp/openclaw-sync.log 2>&1\") | crontab -"
 echo ""
-echo "每 5 分钟监控关键词:"
-echo "  (crontab -l 2>/dev/null; echo \"*/5 * * * * $SKILLS_DIR/memory_manage/scripts/keyword-monitor.sh >> /tmp/openclaw-keyword.log 2>&1\") | crontab -"
+echo "历史关键词扫描（一次性，安装后运行一次）:"
+echo "  node $SKILLS_DIR/memory_manage/scripts/keyword-history.js"
+echo "  node $SKILLS_DIR/memory_manage/scripts/keyword-history.js --days=30  # 只扫描最近 30 天"
 echo ""
-echo "查看关键词配置: $WORKSPACE/memory/keywords.md"
+echo "自检:"
+echo "  node $SKILLS_DIR/memory_manage/scripts/init-check.js"
+echo ""
+echo "关键词配置: $WORKSPACE/memory/keywords.md"
 echo ""
